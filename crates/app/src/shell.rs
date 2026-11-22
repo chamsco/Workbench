@@ -159,12 +159,11 @@ impl Panel {
 }
 
 /// The apps row (Tight tiles): what the sidebar and the hover indent switch between.
-const FUNCTIONS: [(&str, &str); 5] = [
+const FUNCTIONS: [(&str, &str); 4] = [
     ("message-square", "Streams"),
-    ("folder", "Folders"),
     ("calendar", "Automations"),
     ("bot", "Agents"),
-    ("database", "Library"),
+    ("book-open", "Library"),
 ];
 
 gpui_kit::actions!(cauldron, [NewStream]);
@@ -3146,7 +3145,7 @@ mod tests {
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
             let named: [(ElementId, &str); 8] = [
-                (("fn", 4usize).into(), "Library"),
+                (("fn", 3usize).into(), "Library"),
                 (("rb", 0usize).into(), "Highlights"),
                 (("rb", 1usize).into(), "Changes"),
                 ("rb-term".into(), "Terminal"),
@@ -3181,10 +3180,10 @@ mod tests {
         .unwrap();
         cx.executor().advance_clock(ms(1000));
         cx.update_window(handle.into(), |_, window, cx| {
-            window.hover(("fn", 4usize), cx);
+            window.hover(("fn", 3usize), cx);
             window.render_frame(cx);
             assert_eq!(window.find("tooltip").label(), Some("Library"));
-            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 4usize)));
+            let (tip, btn) = (rect(window, "tooltip"), rect(window, ("fn", 3usize)));
             assert!((tip.x - (btn.right() + 8.0)).abs() < 1.5, "left-side tip sits 8px right of its button: {tip:?} {btn:?}");
         })
         .unwrap();
@@ -3578,16 +3577,17 @@ mod tests {
         let handle = open(cx, with_threads());
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            for (i, id) in [(1usize, "folders-page"), (3, "agents-page"), (4, "library-page")] {
+            for (i, id) in [(2usize, "agents-page"), (3, "library-page")] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
                 assert!(window.try_find(id).is_some(), "{id}");
                 assert!(window.try_find("stage-bar").is_none(), "a page has the card to itself");
             }
-            window.click(("lib-tab", 2usize), cx);
+            assert!(window.try_find("folders-page").is_some(), "Library opens on its Folders tab");
+            window.click(("lib-tab", 3usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("graph").is_some() && window.try_find("note-panel").is_some());
-            window.click(("lib-tab", 0usize), cx);
+            window.click(("lib-tab", 1usize), cx);
             window.render_frame(cx);
             window.click(("accept", 0usize), cx);
             window.render_frame(cx);
@@ -3595,7 +3595,7 @@ mod tests {
             window.click("receipt-undo", cx);
             window.render_frame(cx);
             assert!(window.try_find("receipt").is_none(), "undo clears it");
-            window.click(("fn", 1usize), cx);
+            window.click(("lib-tab", 0usize), cx);
             window.render_frame(cx);
             assert!(window.try_find(("folder-tile", 0usize)).is_some(), "a real folder tile");
             window.click("folder-new", cx);
@@ -3613,7 +3613,7 @@ mod tests {
         let handle = open(cx, Cauldron { fam_views: super::familiar::fixtures(), ..with_threads() });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
-            window.click(("fn", 3usize), cx);
+            window.click(("fn", 2usize), cx);
             window.render_frame(cx);
             assert!(window.try_find("agents-page").is_some());
             assert!(window.try_find(("agent-row", 1usize)).is_some(), "the list is in the sidebar");
@@ -3628,7 +3628,7 @@ mod tests {
 
     /// The top row's search button opens the search row; the folded sidebar's hover indent (Tight
     /// tiles rule 6) appears when the pointer reaches the window's left edge, over the card with no
-    /// reflow: search, New stream, the six apps, Settings. Leaving it hides it.
+    /// reflow: search, New stream, the apps, Settings. Leaving it hides it.
     #[gpui_kit::test]
     fn search_button_and_the_hover_indent(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -3856,14 +3856,14 @@ mod tests {
             assert_eq!(window.find(("settings-page", 0usize)).label().map(|l| l.starts_with("Agents")), Some(true), "your name opens Settings");
             window.click("settings", cx);
             window.render_frame(cx);
-            for (i, id) in [(0usize, Some("new-thread")), (1, Some("new-folder")), (2, None), (3, Some("new-familiar")), (4, None)] {
+            for (i, id) in [(0usize, Some("new-thread")), (1, None), (2, Some("new-familiar")), (3, Some("new-folder"))] {
                 window.click(("fn", i), cx);
                 window.render_frame(cx);
                 for other in ["new-thread", "new-folder", "new-familiar"] {
                     assert_eq!(window.try_find(other).is_some(), Some(other) == id, "app {i}: {other}");
                 }
             }
-            window.click(("fn", 3usize), cx);
+            window.click(("fn", 2usize), cx);
             window.render_frame(cx);
             window.click("new-familiar", cx);
             window.render_frame(cx);

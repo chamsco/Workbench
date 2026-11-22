@@ -9,7 +9,7 @@ use backspace_core::familiar::State as FamState;
 
 /// Apps that open a page in the card (indexes into FUNCTIONS).
 pub(crate) fn has_page(i: usize) -> bool {
-    matches!(FUNCTIONS.get(i).map(|f| f.1), Some("Folders" | "Agents" | "Library"))
+    matches!(FUNCTIONS.get(i).map(|f| f.1), Some("Agents" | "Library"))
 }
 
 pub(crate) fn title(section: usize) -> &'static str {
@@ -148,7 +148,6 @@ impl Cauldron {
     /// The page for the selected app.
     pub(super) fn section_page_body(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         match FUNCTIONS[self.section].1 {
-            "Folders" => self.folders_page(pal, cx),
             "Agents" => self.agents_page(pal, cx),
             _ => self.library_page(pal, cx),
         }
@@ -343,14 +342,14 @@ impl Cauldron {
             .child(Self::mock_tag(pal))
             .child(
                 div().id("stripe-review").ml_auto().px(px(10.)).h(px(24.)).flex().items_center().rounded(px(radius::CONTROL)).bg(c(pal.raised)).shadow(lift(Lift::Button, pal)).cursor_pointer().text_size(px(12.)).aria_label("Review").child("Review").on_click(cx.listener(|this, _, _, cx| {
-                    this.pages.lib_tab = 0;
+                    this.pages.lib_tab = 1;
                     if let Some(i) = FUNCTIONS.iter().position(|f| f.1 == "Library") {
                         this.select_section(i, cx);
                     }
                 })).test_support(),
             )
             .test_support();
-        Self::page_shell("folders-page", "Folders", "Where your streams run. Open one to see just its streams.", pal, vec![stripe.into_any_element(), grid.into_any_element()])
+        div().id("folders-page").flex().flex_col().gap(px(14.)).mt(px(14.)).child(div().text_size(px(12.)).text_color(fg3).child("Where your streams run. Open one to see just its streams.")).child(stripe).child(grid).test_support().into_any_element()
     }
 
     // ---- Agents ----------------------------------------------------------------------------
@@ -445,7 +444,7 @@ impl Cauldron {
 
     fn library_page(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
-                let tabs = ["Proposals", "Notes", "Graph", "Librarian"];
+                let tabs = ["Folders", "Proposals", "Notes", "Graph", "Librarian"];
         let mut bar = div().flex().items_center().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).bg(c(pal.inset)).self_start();
         for (i, t) in tabs.iter().enumerate() {
             let on = i == self.pages.lib_tab;
@@ -454,9 +453,11 @@ impl Cauldron {
                 cx.notify();
             })).test_support());
         }
-        let bar = div().flex().items_center().gap(px(10.)).child(bar).child(Self::mock_tag(pal)).child(div().text_size(px(11.5)).text_color(fg3).child("Made-up proposals: the Librarian is not built yet"));
+        let mock = self.pages.lib_tab != 0;
+        let bar = div().flex().items_center().gap(px(10.)).child(bar).when_live(mock, |d| d.child(Self::mock_tag(pal)).child(div().text_size(px(11.5)).text_color(fg3).child("Made-up proposals: the Librarian is not built yet")));
         let body = match self.pages.lib_tab {
-            0 => {
+            0 => self.folders_page(pal, cx),
+            1 => {
                 let mut col = div().mt(px(14.)).flex().flex_col().gap(px(10.));
                 let done = self.pages.proposals.iter().filter(|p| **p == Some(true)).count();
                 if done > 0 {
@@ -493,16 +494,16 @@ impl Cauldron {
                             .test_support(),
                     );
                 }
-                col
+                col.into_any_element()
             }
-            1 => {
+            2 => {
                 let mut col = div().mt(px(14.)).flex().flex_col().gap(px(8.));
                 for (i, (t, b, _, _)) in NOTES.iter().enumerate() {
                     col = col.child(div().id(("note", i)).p(px(12.)).rounded(px(radius::PANEL)).bg(c(pal.panel)).border_1().border_color(c(pal.line)).aria_label(*t).child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(fg).child(*t)).child(div().text_size(px(12.)).text_color(fg3).child(*b)).test_support());
                 }
-                col
+                col.into_any_element()
             }
-            2 => {
+            3 => {
                 let sel = self.pages.note.min(NOTES.len() - 1);
                 let (gw, gh) = (560., 360.);
                 let line = c(pal.line_strong);
@@ -548,11 +549,11 @@ impl Cauldron {
                         .child(div().text_size(px(12.)).line_height(px(17.)).text_color(fg2).child(NOTES[sel].1))
                         .child(div().mt(px(6.)).text_size(px(11.)).text_color(fg3).child(format!("{} links", EDGES.iter().filter(|e| e.0 == sel || e.1 == sel).count())))
                         .test_support(),
-                )
+                ).into_any_element()
             }
-            _ => div().mt(px(14.)).p(px(14.)).rounded(px(radius::PANEL)).bg(c(pal.panel)).border_1().border_color(c(pal.line)).text_size(px(12.5)).line_height(px(18.)).text_color(fg3).child("The Librarian reads your streams, files them into folders and links related notes. It proposes; you accept. Not built yet, so the other tabs show sample data."),
+            _ => div().mt(px(14.)).p(px(14.)).rounded(px(radius::PANEL)).bg(c(pal.panel)).border_1().border_color(c(pal.line)).text_size(px(12.5)).line_height(px(18.)).text_color(fg3).child("The Librarian reads your streams, files them into folders and links related notes. It proposes; you accept. Not built yet, so the other tabs show sample data.").into_any_element(),
         };
-        Self::page_shell("library-page", "Library", "Notes and links the Librarian keeps for you. Nothing moves without a yes.", pal, vec![bar.into_any_element(), body.into_any_element()])
+        Self::page_shell("library-page", "Library", "Your folders, and the notes and links the Librarian keeps. Nothing moves without a yes.", pal, vec![bar.into_any_element(), body])
     }
 }
 
