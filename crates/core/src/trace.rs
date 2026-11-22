@@ -116,7 +116,7 @@ impl Recorder {
             Event::Cost { usd } => {
                 self.root().attrs.insert("cost.usd".into(), json!(usd));
             }
-            Event::Thinking { .. } => {}
+            Event::Thinking { .. } | Event::Wait { .. } => {}
             Event::Text { text } => self.root().output.push_str(text),
             Event::Replace { text } => self.root().output = text.clone(),
             Event::ToolStart { id, name, input } => {

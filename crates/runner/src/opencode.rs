@@ -201,6 +201,20 @@ impl Turn {
                     self.fail = Some(msg.to_string());
                 }
             }
+            "session.status" if mine(&p["sessionID"]) && p["status"]["type"] == "retry" => {
+                // OpenCode retries a throttled or failing provider on its own, with growing
+                // delays, and says so only here. Without this the turn just looks stuck.
+                let st = &p["status"];
+                let why = st["message"].as_str().unwrap_or("The provider is not answering");
+                let n = st["attempt"].as_u64().unwrap_or(1);
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                let secs = st["next"].as_u64().map(|t| t.saturating_sub(now) / 1000);
+                on(Event::Wait { text: match secs {
+                    Some(s) if s >= 90 => format!("{why}. Retry {n} in {} min", s / 60),
+                    Some(s) => format!("{why}. Retry {n} in {s}s"),
+                    None => format!("{why}. Retry {n}"),
+                } });
+            }
             "session.idle" if mine(&p["sessionID"]) => self.done = true,
             "session.status" if mine(&p["sessionID"]) && p["status"]["type"] == "idle" => self.done = true,
             _ => {}
@@ -445,6 +459,17 @@ mod tests {
         assert_eq!(t.asks, ["per_1"]);
         assert_eq!((t.input, t.output, t.cost), (12, 5, 0.25));
         assert!(t.done && t.fail.is_none());
+    }
+
+    #[test]
+    fn a_retry_status_says_why_nothing_arrives() {
+        let mut t = Turn::new("ses_a");
+        let mut got = Vec::new();
+        let in_a_minute = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 + 61_000;
+        t.on(&json!({"type": "session.status", "properties": {"sessionID": "ses_a", "status": {"type": "retry", "attempt": 2, "message": "Free usage exceeded", "next": in_a_minute}}}), &mut |e| got.push(e));
+        let Some(Event::Wait { text }) = got.first() else { panic!("no wait event: {got:?}") };
+        assert!(text.starts_with("Free usage exceeded. Retry 2 in "), "{text}");
+        assert!(!t.done && t.fail.is_none());
     }
 
     #[::core::prelude::v1::test]

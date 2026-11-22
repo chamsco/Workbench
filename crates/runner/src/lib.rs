@@ -182,6 +182,8 @@ pub enum Event {
     Model { model: String },
     /// The session to pass back next turn to resume.
     Session { id: String },
+    /// Nothing is arriving, and why (a provider throttling, a retry scheduled). Empty clears it.
+    Wait { text: String },
     Cost { usd: f64 },
     Usage { input: u64, output: u64 },
     ToolStart { id: String, name: String, input: String },

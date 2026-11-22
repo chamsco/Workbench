@@ -129,6 +129,10 @@ pub struct Msg {
     /// be resumed (`Chats::resume`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupted: bool,
+    /// Why nothing is arriving right now, when the target says so (OpenCode retrying a provider
+    /// that is throttling). Live only; cleared by the next text, thought or tool call.
+    #[serde(skip)]
+    pub wait: Option<String>,
     /// Sent in Plan mode: its reply, and any retry, resume or edit of it, reads and proposes only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plan: bool,
@@ -309,6 +313,7 @@ impl Msg {
             author_name: None,
             trace: None,
             interrupted: false,
+            wait: None,
             plan: false,
             spec: None,
         }
@@ -1342,6 +1347,7 @@ impl Chats {
                 author_name: None,
                 trace: None,
                 interrupted: false,
+            wait: None,
                 plan: ctx.plan,
                 spec: None,
             });
@@ -1928,6 +1934,7 @@ impl Chats {
         }
         self.with_msg(id, mid, |m| {
             m.status = Status::Streaming;
+            m.wait = None;
             m.text.push_str(delta);
         });
     }
@@ -2404,8 +2411,10 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 }
                 self.append(id, mid, &text)
             }
+            RunEvent::Wait { text } => self.with_msg(id, mid, |m| m.wait = Some(text).filter(|t| !t.is_empty())),
             RunEvent::Thinking { text } => self.with_msg(id, mid, |m| {
                 m.status = Status::Streaming;
+                m.wait = None;
                 m.thinking.push_str(&text);
                 if !m.acts.last().is_some_and(|a| a.name == "Thinking" && a.end.is_none()) {
                     let at = m.text.len();
@@ -2419,6 +2428,7 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {
                 // A reply that opens with a tool call is under way, not "waiting for the reply".
                 m.status = Status::Streaming;
+                m.wait = None;
                 end_thinking(m);
                 let path = act_path(&input);
                 let input: String = input.chars().take(400).collect();
@@ -2779,6 +2789,7 @@ mod tests {
             author_name: None,
             trace: None,
             interrupted: false,
+            wait: None,
             plan: false,
             spec: None,
         };
@@ -2842,6 +2853,7 @@ mod tests {
                     author_name: None,
                     trace: None,
                     interrupted: false,
+            wait: None,
                     plan: false,
                     spec: None,
                 });

@@ -181,17 +181,20 @@ pub(super) fn now_ms() -> u64 {
 }
 
 /// `text` with a silver sweep running through it: each letter is mixed from the grey toward the
-/// bright ink by how near the sweep is, 1.6 s a pass. A still frame (reduced motion) is plain grey.
+/// bright ink by how near the sweep is, 1.6 s a pass, on top of a slow pulse of the whole line
+/// (2.4 s a breath) so it reads as alive even between sweeps. A still frame (reduced motion) is
+/// plain grey.
 pub(super) fn shimmer(text: &str, now: u64, grey: Hsla, ink: Hsla, still: bool) -> StyledText {
     let n = text.chars().count().max(1) as f32;
     let width = 5.0_f32;
     let phase = (now % 1600) as f32 / 1600.0;
     let centre = phase * (n + 2.0 * width) - width;
+    let breath = 0.5 - 0.5 * ((now % 2400) as f32 / 2400.0 * std::f32::consts::TAU).cos();
     let mut hl = Vec::with_capacity(text.len());
     if !still {
         for (k, (i, ch)) in text.char_indices().enumerate() {
             let near = (1.0 - ((k as f32 - centre).abs() / width)).clamp(0.0, 1.0);
-            let t = near * near * (3.0 - 2.0 * near);
+            let t = (near * near * (3.0 - 2.0 * near)).max(0.45 * breath);
             if t > 0.02 {
                 let col = Hsla { h: grey.h, s: grey.s + (ink.s - grey.s) * t, l: grey.l + (ink.l - grey.l) * t, a: grey.a + (ink.a - grey.a) * t };
                 hl.push((i..i + ch.len_utf8(), HighlightStyle { color: Some(col), ..Default::default() }));
