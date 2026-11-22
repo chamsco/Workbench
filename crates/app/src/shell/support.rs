@@ -274,7 +274,7 @@ impl Cauldron {
 
     /// The support card's body for `p`: the panel's content, its loading, empty or error state,
     /// or, for a panel with no source yet, a marked placeholder.
-    pub(super) fn support_body(&self, p: Panel, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn support_body(&self, p: Panel, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let col = || div().id("support-body").size_full().flex().flex_col().gap(px(6.)).px(px(14.)).pt(px(14.)).pb(px(12.)).overflow_y_scroll().text_size(px(12.5));
         // A state in place of content: a title, a line, and the whole as one accessible name.
@@ -293,7 +293,7 @@ impl Cauldron {
                 )
                 .into_any_element()
         };
-        if let Some(b) = self.link_body(p, pal, cx) {
+        if let Some(b) = self.link_body(p, pal, window, cx) {
             return b;
         }
         if let Some(why) = p.placeholder() {

@@ -145,9 +145,13 @@ impl Cauldron {
     }
 
     /// The support card's body for an opened link, when `p` is the panel it opened in.
-    pub(super) fn link_body(&self, p: Panel, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn link_body(&self, p: Panel, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let link = self.link.clone()?;
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let load_progress = (p == Panel::Browser).then(|| self.browser.load_progress()).flatten();
+        if load_progress.is_some_and(|(_, animate)| animate) {
+            window.request_animation_frame();
+        }
         let head = |label: String, outside: &'static str, link: Link, cx: &mut Context<Self>| {
             div()
                 .flex()
@@ -198,6 +202,100 @@ impl Cauldron {
                         .test_support(),
                 )
         };
+        let browser_head = |label: String, link: Link, cx: &mut Context<Self>| {
+            let utility = |id: &'static str, icon: &'static str, label: &'static str| {
+                div()
+                    .id(id)
+                    .size(px(24.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(radius::CONTROL))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(pal.hover)))
+                    .aria_label(label)
+                    .child(glyph(icon, 13., fg3))
+            };
+            let progress = load_progress.map(|(width, _)| {
+                div()
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .h(px(2.))
+                    .w(relative(width))
+                    .rounded(px(radius::CONTROL))
+                    .bg(ca(pal.fg, 0.18))
+            });
+            div()
+                .id("browser-head")
+                .relative()
+                .flex()
+                .items_center()
+                .gap(px(3.))
+                .h(px(30.))
+                .flex_none()
+                .px(px(3.))
+                .rounded(px(radius::CONTROL))
+                .bg(c(pal.inset))
+                .border_1()
+                .border_color(c(pal.line))
+                .children(progress)
+                .child(utility("browser-back", "chevron-left", "Go back").on_click(cx.listener(|this, _, _, cx| {
+                    this.browser.go_back();
+                    cx.notify();
+                })))
+                .child(utility("browser-forward", "chevron-right", "Go forward").on_click(cx.listener(|this, _, _, cx| {
+                    this.browser.go_forward();
+                    cx.notify();
+                })))
+                .child(utility("browser-reload", "refresh-cw", "Reload page").on_click(cx.listener(|this, _, _, cx| {
+                    this.browser.reload();
+                    cx.notify();
+                })))
+                .child(div().relative().min_w_0().flex_1().truncate().font_family(MONO).text_size(px(11.5)).text_color(fg).child(label))
+                .child(
+                    div()
+                        .id("link-outside-btn")
+                        .flex_none()
+                        .h(px(24.))
+                        .px(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .rounded(px(radius::CONTROL))
+                        .border_1()
+                        .border_color(c(pal.line))
+                        .text_color(c(pal.fg2))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label("Open in browser")
+                        .child(glyph("external-link", 12., fg3))
+                        .child("Open in browser")
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_link(link.clone(), false, cx)))
+                        .test_support(),
+                )
+                .child(
+                    div()
+                        .id("link-close")
+                        .flex_none()
+                        .size(px(24.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(radius::CONTROL))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label("Close the link")
+                        .child(glyph("x", 13., fg3))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.link = None;
+                            cx.notify();
+                        }))
+                        .test_support(),
+                )
+                .test_support()
+        };
         let col = div().id("link-body").size_full().flex().flex_col().gap(px(6.)).px(px(14.)).pt(px(10.)).pb(px(12.));
         Some(match (&link, p) {
             (Link::Url(u), Panel::Browser) => {
@@ -216,7 +314,7 @@ impl Cauldron {
                         d.flex().flex_col().items_center().justify_center().gap(px(4.)).text_size(px(12.)).text_color(fg3).child("The in-app browser runs on Windows and macOS.").child("On this system, open the page in your browser.")
                     })
                     .test_support();
-                col.child(head(u.clone(), "Open in browser", link.clone(), cx)).child(page).into_any_element()
+                col.child(browser_head(u.clone(), link.clone(), cx)).child(page).into_any_element()
             }
             (Link::File(f), Panel::Files) => {
                 let body = match preview(f) {
