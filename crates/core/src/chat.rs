@@ -2417,6 +2417,8 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
                 }
             }),
             RunEvent::ToolStart { id: tid, name, input } => self.with_msg(id, mid, |m| {
+                // A reply that opens with a tool call is under way, not "waiting for the reply".
+                m.status = Status::Streaming;
                 end_thinking(m);
                 let path = act_path(&input);
                 let input: String = input.chars().take(400).collect();

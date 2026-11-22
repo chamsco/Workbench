@@ -232,6 +232,8 @@ pub(crate) struct Cauldron {
     sides_folded: std::collections::HashSet<String>,
     /// Sidebar groups (Needs you, Working, Done) the user folded, by label.
     groups_folded: std::collections::HashSet<String>,
+    /// The Archived shelf at the bottom of the list is open.
+    archive_open: bool,
     /// The right-click menu on a stream, when open.
     stream_menu: Option<streammenu::StreamMenu>,
     /// Settings > Appearance: which colour the swatches set, and the open hex field.
@@ -650,7 +652,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default() }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -797,8 +799,14 @@ impl Cauldron {
                 let side_n = |id: &str| v.iter().filter(|t| t.side_of.as_deref() == Some(id)).count();
                 // Archived streams stay out of the list until a search asks for them.
                 let searching = !self.query.trim().is_empty();
-                let mains: Vec<ThreadInfo> = v.iter().filter(|t| (!t.archived || searching) && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
-                let groups = threads::grouped(&mains, &self.query);
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                // Archived streams wait at the bottom, folded, so one can be opened and brought back.
+                let shelved: Vec<ThreadInfo> = v.iter().filter(|t| t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                let mut groups = threads::grouped(&mains, &self.query);
+                let shelf: Vec<&ThreadInfo> = threads::grouped(&shelved, &self.query).into_iter().flat_map(|(_, ts)| ts).collect();
+                if !shelf.is_empty() {
+                    groups.push((Group::Archived, shelf));
+                }
                 if groups.is_empty() {
                     let q = self.query.trim().to_string();
                     return list.child(note("threads-no-match", format!("No threads match {q}"), None, format!("No threads match \u{201c}{q}\u{201d}"), None));
@@ -807,7 +815,7 @@ impl Cauldron {
                 let mut side_i = 0usize;
                 for (gi, (g, ts)) in groups.into_iter().enumerate() {
                     let n = ts.len();
-                    let folded = self.groups_folded.contains(g.label());
+                    let folded = if g == Group::Archived { !self.archive_open && !searching } else { self.groups_folded.contains(g.label()) };
                     let glabel = g.label().to_string();
                     // The board's `.grp`: the name, then its count in a quieter grey; click folds it.
                     list = list.child(
@@ -816,7 +824,9 @@ impl Cauldron {
                             .cursor_pointer()
                             .aria_expanded(!folded)
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                if !this.groups_folded.remove(&glabel) {
+                                if glabel == Group::Archived.label() {
+                                    this.archive_open = !this.archive_open;
+                                } else if !this.groups_folded.remove(&glabel) {
                                     this.groups_folded.insert(glabel.clone());
                                 }
                                 cx.notify();
@@ -849,6 +859,7 @@ impl Cauldron {
                             Group::NeedsYou if t.failed.is_some() => "Failed",
                             Group::NeedsYou => "Needs you",
                             Group::Done => "Done",
+                            Group::Archived => "Archived",
                         };
                         let dot = match state {
                             "Working" => mark::mark(("thread-dot", i), Mark::Working, mark::SIZE, c(pal.accent)),
@@ -989,38 +1000,50 @@ impl Cauldron {
                                 let open_now = self.open.as_deref() == Some(sid.as_str());
                                 let (sm, sk) = (x.id.clone(), x.id.clone());
                                 let closed = self.closed_sides.contains(&x.id);
+                                let last = k + 1 == n_subs;
+                                // The tree (Charles, 22 Nov): the bar sits under the first letter of the stream's
+                                // title, curves into each side stream and ends in an arrow. Greyed until hovered
+                                // or open; the highlight starts a little left of the first letter.
+                                let bar_x = 8. + mark::SIZE + 8.;
+                                let line = c(pal.line_strong);
                                 list = list.child(
                                     div()
-                                        .id(("side-row", side_i))
-                                        .h(px(26.))
-                                        .flex_none()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(7.))
                                         .relative()
-                                        .pl(px(36.))
-                                        .pr(px(8.))
-                                        .rounded(px(radius::CONTROL))
-                                        .text_size(px(12.5))
-                                        // Greyed until hovered or open (Charles, 22 Nov).
-                                        .text_color(if open_now { fg } else { c(pal.fg4) })
-                                        .when_live(open_now, |d| d.bg(c(pal.hover)))
-                                        .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg2)))
-                                        // The tree: one line down from the stream, a branch into each side stream.
-                                        .child(div().absolute().left(px(17.)).top_0().w(px(1.)).h(px(if k + 1 == n_subs { 13. } else { 26. })).bg(c(pal.line_strong)))
-                                        .child(div().absolute().left(px(17.)).top(px(13.)).w(px(12.)).h(px(1.)).bg(c(pal.line_strong)))
-                                        .cursor_pointer()
-                                        .aria_label(format!("Side stream: {}", x.title))
-                                        .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
-                                        .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
-                                        .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
-                                        .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sm.clone(), ev.position, cx)))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.closed_sides.remove(&sk);
-                                            this.open_thread(sk.clone());
-                                            cx.notify();
-                                        }))
-                                        .test_support(),
+                                        .flex()
+                                        .flex_none()
+                                        .h(px(26.))
+                                        .child(div().absolute().left(px(bar_x)).top_0().w(px(10.)).h(px(13.)).border_l_1().border_b_1().border_color(line).rounded_bl(px(8.)))
+                                        .when_live(!last, |d| d.child(div().absolute().left(px(bar_x)).top(px(13.)).w(px(1.)).h(px(13.)).bg(line)))
+                                        .child(div().absolute().left(px(bar_x + 7.)).top(px(9.)).child(glyph("chevron-right", 8., c(pal.fg4))))
+                                        .child(
+                                            div()
+                                                .id(("side-row", side_i))
+                                                .flex_1()
+                                                .min_w_0()
+                                                .ml(px(bar_x + 17.))
+                                                .flex()
+                                                .items_center()
+                                                .gap(px(7.))
+                                                .pl(px(6.))
+                                                .pr(px(8.))
+                                                .rounded(px(radius::CONTROL))
+                                                .text_size(px(12.5))
+                                                .text_color(if open_now { fg } else { c(pal.fg4) })
+                                                .when_live(open_now, |d| d.bg(c(pal.hover)))
+                                                .when_live(!open_now, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg2)))
+                                                .cursor_pointer()
+                                                .aria_label(format!("Side stream: {}", x.title))
+                                                .child(div().flex_1().min_w_0().truncate().child(x.title.clone()))
+                                                .when_live(x.busy, |d| d.child(div().size(px(6.)).flex_none().rounded_full().bg(c(pal.accent))))
+                                                .when_live(closed && !x.busy, |d| d.child(div().text_size(px(10.5)).text_color(c(pal.fg4)).child("closed")))
+                                                .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(sm.clone(), ev.position, cx)))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.closed_sides.remove(&sk);
+                                                    this.open_thread(sk.clone());
+                                                    cx.notify();
+                                                }))
+                                                .test_support(),
+                                        ),
                                 );
                                 side_i += 1;
                                 let _ = &sid;

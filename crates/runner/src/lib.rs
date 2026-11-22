@@ -602,7 +602,7 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
         let _ = err.read_to_string(&mut s).await;
         s
     });
-    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut stdout = child.stdout.take().unwrap();
     // CLIs repeat the session id on many lines: pass on each one once.
     let mut session: Option<String> = None;
     let on = &mut |e: Event| {
@@ -617,6 +617,22 @@ async fn run_cli(req: &Request, provider: &str, bin: &PathBuf, on: Sink<'_>) -> 
     let mut got_partial = false;
     let mut raw = String::new();
     let mut fail: Option<String> = None;
+    // Cursor and Grok print plain text, often without a newline until the end: read what has
+    // arrived instead of waiting for a whole line, so their text streams (it came all at once).
+    let plain_out = !matches!(provider, "claude" | "codex" | "gemini");
+    if plain_out {
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = stdout.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&buf[..n]);
+            on(Event::Replace { text: plain(String::from_utf8_lossy(&bytes).as_ref()).trim().to_string() });
+        }
+    }
+    let mut lines = BufReader::new(stdout).lines();
     while let Some(line) = lines.next_line().await? {
         match provider {
             "claude" => claude_line(&line, &mut got_partial, &mut fail, on),
