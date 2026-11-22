@@ -577,7 +577,23 @@ impl Cauldron {
         let now_ms = super::ledger::now_ms();
         let open_k = self.open_since.map_or(1.0, |t0| cauldron_chrome::motion::fade_in(crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY)));
         let bubble_k = self.bubble_since.map_or(1.0, |t0| crate::motion::run(now, t0, cauldron_chrome::motion::time::CARRY));
-        let mut msgs = div().id("transcript").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.transcript_scroll).flex().flex_col().gap(px(12.)).opacity(open_k);
+        let mut msgs = div()
+            .id("transcript")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.transcript_scroll)
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .opacity(open_k)
+            // A new press starts a new selection; letting go shows the bar for what got selected.
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.sel.take().is_some() {
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, ev: &MouseUpEvent, window, cx| this.note_selection(ev.position, window, cx)));
         let ls = lines(t);
         // Keep the newest message in view when a thread opens or grows, in a short pane too.
         let seen = Some((t.id.clone(), ls.len()));

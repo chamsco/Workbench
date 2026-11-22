@@ -109,6 +109,12 @@ fn settle(s: &str) -> String {
 
 /// A line drawn, with its links: URLs, and code spans naming a file in `dir`.
 fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (StyledText, Vec<(Range<usize>, super::links::Link)>) {
+    let (text, hl, links) = styled_parts(s, tail, dir, pal);
+    (StyledText::new(text).with_highlights(hl), links)
+}
+
+/// `styled` before it becomes a `StyledText`: the shown text, its runs and its links.
+fn styled_parts(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (String, Vec<(Range<usize>, HighlightStyle)>, Vec<(Range<usize>, super::links::Link)>) {
     let (mut text, spans) = inline(&if tail.is_some() { settle(s) } else { s.to_string() });
     let code: Vec<Range<usize>> = spans.iter().filter(|(_, c)| *c).map(|(r, _)| r.clone()).collect();
     let links = super::links::find(&text, &code, dir);
@@ -136,7 +142,7 @@ fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal
         text.push('\u{258d}');
         hl.push((at..text.len(), HighlightStyle { color: Some(accent.opacity(if (now / 530) % 2 == 0 { 1.0 } else { 0.0 })), ..Default::default() }));
     }
-    (StyledText::new(text).with_highlights(hl), links)
+    (text, hl, links)
 }
 
 impl Cauldron {
@@ -157,7 +163,15 @@ impl Cauldron {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let dir = self.thread.as_ref().and_then(|t| t.project.clone()).map(std::path::PathBuf::from);
         // A line with links: a click opens one in the card, a right click offers where.
+        let selectable = bar_at.is_some();
         let link_line = |s: &str, t: Option<(u64, Hsla)>, n: usize, cx: &mut Context<Self>| -> AnyElement {
+            // A finished reply line with no link can be selected (links keep their clicks).
+            if selectable && t.is_none() {
+                let (text, hl, links) = styled_parts(s, None, dir.as_deref(), pal);
+                if links.is_empty() {
+                    return div().child(super::seltext::SelText::new(SharedString::from(format!("sel-{key}-{n}")), text, hl, ca(pal.accent, 0.28))).into_any_element();
+                }
+            }
             let (st, links) = styled(s, t, dir.as_deref(), pal);
             if links.is_empty() {
                 return div().child(st).into_any_element();
@@ -382,6 +396,70 @@ impl Cauldron {
             Err(e) => self.send_error = Some(e.to_string()),
         }
         cx.notify();
+    }
+
+    /// The pointer let go over the transcript: keep what is selected, and where, for the bar.
+    pub(super) fn note_selection(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let t = gpui_kit::base::TextSelection::selected_text(window, cx);
+        self.sel = (!t.trim().is_empty()).then_some((t, at));
+        cx.notify();
+    }
+
+    /// The small bar over a selection (Charles, 22 Nov): Reply with it quoted, Copy, and fork it
+    /// into a side thread.
+    pub(super) fn sel_bar_el(&self, pal: &'static Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (text, at) = self.sel.clone()?;
+        if !gpui_kit::base::TextSelection::has_selection(window, cx) {
+            return None;
+        }
+        let vp = window.viewport_size();
+        let x = (f32::from(at.x) - 50.).min(f32::from(vp.width) - 120.).max(8.);
+        let y = (f32::from(at.y) - 40.).max(8.);
+        let fg2 = c(pal.fg2);
+        let btn = |id: &'static str, icon: &'static str, label: &'static str| {
+            div().id(id).size(px(26.)).flex().items_center().justify_center().rounded(px(radius::TAG)).cursor_pointer().hover(|d| d.bg(c(pal.hover))).aria_label(label).child(glyph(icon, 14., fg2))
+        };
+        let (t1, t2, t3) = (text.clone(), text.clone(), text);
+        Some(
+            div()
+                .id("sel-bar")
+                .absolute()
+                .left(px(x))
+                .top(px(y))
+                .h(px(32.))
+                .px(px(3.))
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .rounded(px(radius::CONTROL))
+                .bg(c(pal.panel))
+                .border_1()
+                .border_color(c(pal.line))
+                .shadow(super::lift(super::Lift::Card, pal))
+                .occlude()
+                // Down, not click: the selection layer clears the selection on the way up.
+                .child(btn("sel-reply", "message-square-quote", "Reply with this quoted").on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.sel = None;
+                    gpui_kit::base::TextSelection::clear(window, cx);
+                    this.quote_in_composer(&t1, window, cx);
+                })))
+                .child(btn("sel-copy", "copy", "Copy").on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(t2.clone()));
+                    this.sel = None;
+                    gpui_kit::base::TextSelection::clear(window, cx);
+                    cx.notify();
+                })))
+                .child(btn("sel-fork", "git-fork", "Fork into a side thread").on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.sel = None;
+                    gpui_kit::base::TextSelection::clear(window, cx);
+                    this.fork_block("", &t3, window, cx);
+                })))
+                .test_support()
+                .into_any_element(),
+        )
     }
 }
 
