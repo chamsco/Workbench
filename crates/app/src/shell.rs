@@ -21,6 +21,7 @@ use backspace_core::prefs::Prefs;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::Theme;
 use std::sync::Arc;
+use std::time::Duration;
 
 mod apps;
 mod backdrop;
@@ -3095,7 +3096,22 @@ impl Render for Cauldron {
             (Some(links::Link::Url(u)), Some(Panel::Browser), Some(b)) if self.link_menu.is_none() && self.stream_menu.is_none() => Some((u.clone(), b)),
             _ => None,
         };
-        self.browser.sync(page.as_ref().map(|(u, b)| (u.as_str(), *b)), window);
+        self.browser.request(page.as_ref().map(|(u, b)| (u.as_str(), *b)));
+        if self.browser.needs_sync() {
+            self.browser.queue_sync();
+            let window_handle = window.window_handle();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(1)).await;
+                cx.update_window(window_handle, |_, window, cx| {
+                    this.update(cx, |this, cx| {
+                        this.browser.sync(window);
+                        cx.notify();
+                    })
+                })
+                .ok();
+            })
+            .detach();
+        }
         if page.is_none() {
             self.browser_slot.set(None);
         }
