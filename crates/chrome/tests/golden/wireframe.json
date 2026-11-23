@@ -15,9 +15,9 @@
      "dock_open": true,
      "rects": {
       "sidebar": {
-       "x": 4,
+       "x": 0,
        "y": 4,
-       "w": 232,
+       "w": 236,
        "h": 752,
        "visible": true
       },
@@ -92,9 +92,9 @@
      "dock_open": false,
      "rects": {
       "sidebar": {
-       "x": 4,
+       "x": 0,
        "y": 4,
-       "w": 232,
+       "w": 236,
        "h": 752,
        "visible": true
       },
@@ -360,9 +360,9 @@
      "dock_open": false,
      "rects": {
       "sidebar": {
-       "x": 4,
+       "x": 0,
        "y": 4,
-       "w": 232,
+       "w": 236,
        "h": 752,
        "visible": true
       },
@@ -393,7 +393,7 @@
        "visible": false
       },
       "lights": {
-       "x": 16,
+       "x": 12,
        "y": 21,
        "w": 70,
        "h": 12,
@@ -433,9 +433,9 @@
      "dock_open": true,
      "rects": {
       "sidebar": {
-       "x": 4,
+       "x": 0,
        "y": 4,
-       "w": 232,
+       "w": 236,
        "h": 892,
        "visible": true
       },
@@ -510,9 +510,9 @@
      "dock_open": false,
      "rects": {
       "sidebar": {
-       "x": 4,
+       "x": 0,
        "y": 4,
-       "w": 232,
+       "w": 236,
        "h": 892,
        "visible": true
       },
@@ -778,9 +778,9 @@
      "dock_open": false,
      "rects": {
       "sidebar": {
-       "x": 4,
+       "x": 0,
        "y": 4,
-       "w": 232,
+       "w": 236,
        "h": 892,
        "visible": true
       },
@@ -811,7 +811,7 @@
        "visible": false
       },
       "lights": {
-       "x": 16,
+       "x": 12,
        "y": 21,
        "w": 70,
        "h": 12,

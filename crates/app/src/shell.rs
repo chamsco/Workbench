@@ -51,6 +51,7 @@ mod seltext;
 mod mark;
 mod picker;
 mod side;
+mod filter;
 mod spotlight;
 mod settings;
 mod subs;
@@ -285,6 +286,9 @@ pub(crate) struct Cauldron {
     search_open: bool,
     /// Search streams, the Spotlight-style overlay (spotlight.rs); None while closed.
     spot: Option<spotlight::Spot>,
+    /// The Streams filter and whether its choices are showing (filter.rs).
+    sfilter: filter::StreamFilter,
+    sfilter_open: bool,
     /// Library: the folders opened to show their streams.
     lib_open: std::collections::HashSet<String>,
     indent: bool,
@@ -296,6 +300,9 @@ pub(crate) struct Cauldron {
     /// what width.
     sidebar_w: f32,
     sidebar_drag: Option<(f32, f32)>,
+    /// The support card's dragged width (prefs `support_w`; 0 is the default) and the drag in progress: where it started, at what width.
+    support_w: f32,
+    support_drag: Option<(f32, f32)>,
     /// A link opened in the support card, the right-click menu on one, the link under the
     /// pointer in a reply (for that menu), the browser view and the box it sits over.
     link: Option<links::Link>,
@@ -520,6 +527,7 @@ impl Cauldron {
         }
         c.theme_mode = prefs.theme.clone();
         c.sidebar_w = prefs.sidebar_w.map_or(metric::SIDEBAR_W, layout::sidebar_width);
+        c.support_w = prefs.support_w.unwrap_or(0.0);
         c.done_open = prefs.streams_show_done;
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
         set_notch(prefs.window_style.as_deref() == Some("notch"));
@@ -759,7 +767,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, spot: None, lib_open: Default::default(), indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_pick: None, map_hover: false, flow_edit: None }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, spot: None, sfilter: Default::default(), sfilter_open: false, lib_open: Default::default(), indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, support_w: 0.0, support_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_pick: None, map_hover: false, flow_edit: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -911,10 +919,11 @@ impl Cauldron {
                 let mine = |t: &ThreadInfo| t.agent.as_deref().is_some_and(|a| self.agent_cached(a).is_some());
                 let now = backspace_core::chat::now_ms();
                 let top = |t: &ThreadInfo| t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m));
-                let mains: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && !mine(t) && !threads::snoozed(t, now) && top(t)).cloned().collect();
-                let dozing: Vec<ThreadInfo> = v.iter().filter(|t| !t.archived && !mine(t) && threads::snoozed(t, now) && top(t)).cloned().collect();
+                let pass = |t: &ThreadInfo| self.sfilter.passes(t);
+                let mains: Vec<ThreadInfo> = v.iter().filter(|t| pass(t) && !t.archived && !mine(t) && !threads::snoozed(t, now) && top(t)).cloned().collect();
+                let dozing: Vec<ThreadInfo> = v.iter().filter(|t| pass(t) && !t.archived && !mine(t) && threads::snoozed(t, now) && top(t)).cloned().collect();
                 // Archived streams wait at the bottom, folded, so one can be opened and brought back.
-                let shelved: Vec<ThreadInfo> = v.iter().filter(|t| t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
+                let shelved: Vec<ThreadInfo> = v.iter().filter(|t| pass(t) && t.archived && t.side_of.as_ref().is_none_or(|m| !v.iter().any(|x| &x.id == m))).cloned().collect();
                 let mut groups = threads::grouped(&mains, &self.query);
                 let nap: Vec<&ThreadInfo> = threads::grouped(&dozing, &self.query).into_iter().flat_map(|(_, ts)| ts).collect();
                 if !nap.is_empty() {
@@ -1070,8 +1079,6 @@ impl Cauldron {
                                 .rounded(px(radius::CONTROL))
                                 .text_size(px(13.))
                                 .text_color(if on || t.unread { fg } else { fg2 })
-                                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
-                                .cursor_pointer()
                                 .aria_label(t.title.clone())
                                 .child(slot.test_support())
                                 .child(div().flex_1().min_w_0().truncate().font_weight(if t.unread { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(t.title.clone()))
@@ -1110,6 +1117,12 @@ impl Cauldron {
                                 })
                                 .children(snooze_note)
                                 .children(word)
+                                .test_support(),
+                                )
+                                .child(div().px(px(8.)).child(under))
+                                // The whole row is one card: a click anywhere on it opens the stream.
+                                .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                                .cursor_pointer()
                                 .on_mouse_down(MouseButton::Right, cx.listener({
                                     let id = id.clone();
                                     move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(id.clone(), ev.position, cx)
@@ -1122,9 +1135,6 @@ impl Cauldron {
                                     }
                                     cx.notify();
                                 }))
-                                .test_support(),
-                                )
-                                .child(div().px(px(8.)).child(under))
                                 .test_support(),
                         );
                         if !self.sides_folded.contains(&t.id) {
@@ -1519,6 +1529,11 @@ impl Cauldron {
             p.sidebar_w = Some(self.sidebar_w.round());
             p.save();
         }
+        if self.support_drag.take().is_some() {
+            let mut p = Prefs::load();
+            p.support_w = Some(self.support_w.round());
+            p.save();
+        }
     }
 
     fn fold_support(&mut self) {
@@ -1797,6 +1812,8 @@ fn fold_button(id: impl Into<ElementId>, label: &'static str, pal: &'static Pale
 /// Room between the sidebar's top row and the apps row (Charles, 21 Nov 16:00Z: it was cramped).
 const APPS_TOP: f32 = 16.0;
 const SIDE_PL: f32 = 10.0;
+/// Dragging the sidebar's edge narrower than this folds it.
+const SIDEBAR_FOLD_AT: f32 = 170.0;
 /// An agent's figure on its tab and in lists (Charles, 20 Nov): only agents and captains get one;
 /// streams do not.
 const TAB_FIG: f32 = 16.0;
@@ -2031,7 +2048,7 @@ impl Render for Cauldron {
             }
             p
         };
-        let side = layout::Sidebar { w: self.sidebar_w, push };
+        let side = layout::Sidebar { w: self.sidebar_w, push, support: self.support_w };
         let (s, mut moving) = self.motion.frame(want, Frame::at_rest(&layout::solve_at(w, h, want, plat, side)), now, reduce);
         moving |= self.indent_run.1.is_some();
         // The drawer body's crossfade, the + menu's open and close, and the Send/Stop glyphs.
@@ -2152,13 +2169,31 @@ impl Render for Cauldron {
             .font_family(SANS).font_features(sans_features())
             .text_size(px(13.))
             .text_color(fg)
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 if let Some((x0, w0)) = this.sidebar_drag {
                     // The release can land on a card that takes the mouse; a move with the button up ends it too.
                     if ev.pressed_button != Some(MouseButton::Left) {
                         this.end_sidebar_drag();
                     } else {
-                        this.sidebar_w = layout::sidebar_width(w0 + f32::from(ev.position.x) - x0);
+                        let want = w0 + f32::from(ev.position.x) - x0;
+                        if want < SIDEBAR_FOLD_AT {
+                            // Dragged past the narrowest: it folds to the skinny rail (Charles, 23 Nov).
+                            this.end_sidebar_drag();
+                            this.sidebar_open = false;
+                        } else {
+                            this.sidebar_w = layout::sidebar_width(want);
+                        }
+                    }
+                    cx.notify();
+                    return;
+                }
+                if let Some((x0, w0)) = this.support_drag {
+                    if ev.pressed_button != Some(MouseButton::Left) {
+                        this.end_sidebar_drag();
+                    } else {
+                        // The card's left edge moves with the pointer, so dragging left widens it.
+                        let vw = f32::from(window.viewport_size().width);
+                        this.support_w = layout::dragged_support_width(vw, w0 + x0 - f32::from(ev.position.x));
                     }
                     cx.notify();
                     return;
@@ -2166,7 +2201,7 @@ impl Render for Cauldron {
                 this.drag_line(ev, cx)
             }))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                if this.sidebar_drag.is_some() {
+                if this.sidebar_drag.is_some() || this.support_drag.is_some() {
                     this.end_sidebar_drag();
                     cx.notify();
                 }
@@ -2266,18 +2301,11 @@ impl Render for Cauldron {
             let new_thread = self.new_button_row(pal, cx);
             let has_new = Self::new_action(self.section).is_some();
             // The top row is 30 high under 8px of padding; the window draws its contents.
-            // One floating card, top to bottom, like the support card on the right (Charles, 23 Nov:
-            // "it should look like the floating widgets on the right ... just one sidebar").
             let card_el = pane("sidebar", sp.rect)
                 .opacity(sp.alpha)
-                .rounded(px(radius::PANEL))
-                .bg(backdrop::card_bg(self.painting, pal))
-                .border_1()
-                .border_color(c(pal.line_strong))
-                .shadow(lift(Lift::Frame, pal))
                 .flex()
                 .flex_col()
-                .pl(px(SIDE_PL - 2.0))
+                .pl(px(SIDE_PL))
                 .pr(px(SIDE_PR))
                 .pt(px(8.))
                 .pb(px(6.))
@@ -2286,7 +2314,7 @@ impl Render for Cauldron {
                 .when_live(self.settings.is_none(), |d| d.child(fnrow.test_support()))
                 .when_live(self.settings.is_none() && has_new, |d| d.child(new_thread))
                 .when_live(self.settings.is_some(), |d| d.child(self.settings_nav(self.settings.unwrap_or(0), pal, cx).test_support()))
-                .when_live(self.settings.is_none() && self.section == 0, |d| d.child(familiars).child(list))
+                .when_live(self.settings.is_none() && self.section == 0, |d| d.child(familiars).child(self.streams_head(pal, cx)).child(list))
                 .when_live(self.settings.is_none() && self.section != 0, |d| d.child(self.app_list(self.section, pal, cx)))
                 .child(self.sidebar_foot(pal, accent, &user, &initial, cx));
             root = root.child(card_el.test_support());
@@ -2950,6 +2978,25 @@ impl Render for Cauldron {
                 .child(shead.test_support())
                 .child(bodies);
             root = root.child(d.test_support());
+            // The card's left edge drags its width, in the gap before it (Charles, 23 Nov).
+            root = root.child(
+                div()
+                    .id("support-edge")
+                    .absolute()
+                    .left(px(r.x - metric::GAP - 2.0))
+                    .top(px(r.y))
+                    .w(px(metric::GAP + 4.0))
+                    .h(px(r.h))
+                    .cursor_col_resize()
+                    .occlude()
+                    .aria_label("Resize the side card")
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                        this.support_drag = Some((f32::from(ev.position.x), r.w));
+                        cx.stop_propagation();
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
         }
 
         // ---- the quick-button rail, inside the rightmost card's right edge (the board's `.irail`):
@@ -3085,11 +3132,11 @@ impl Render for Cauldron {
         }
         // The usage ring's hover card, over the user row, touching it so the pointer can cross.
         if let (true, Some(sp)) = (self.usage_hover || self.usage_card_hover, s.sidebar) {
-            root = root.child(div().absolute().left(px(sp.rect.x + 90.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 36.0)).child(self.usage_card(pal, cx).test_support()));
+            root = root.child(div().absolute().left(px(sp.rect.x + 6.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 36.0)).child(self.usage_card(pal, (sp.rect.w - 12.0).min(280.0), cx).test_support()));
         }
         // The version button's update card, above the user row, over every pane.
         if let (true, Some(sp)) = (self.update_open, s.sidebar) {
-            root = root.child(div().absolute().left(px(sp.rect.x + 6.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 44.0)).child(self.update_card(pal, cx).test_support()));
+            root = root.child(div().absolute().left(px(sp.rect.x + 6.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 44.0)).child(self.update_card(pal, (sp.rect.w - 12.0).min(300.0), cx).test_support()));
         }
         if let Some(t) = self.inbox_toast(pal, cx) {
             let vp = window.viewport_size();
@@ -4168,7 +4215,7 @@ mod tests {
             window.render_frame(cx);
             // The pinned one stays in view under Streams; the other finished one is old, so Done.
             let heads: Vec<String> = (0..4usize).map(|g| window.find(("group", g)).label().unwrap().to_string()).collect();
-            assert_eq!(heads, ["Needs you, 2", "Running, 1", "Streams, 1", "Done, 1"]);
+            assert_eq!(heads, ["Needs you, 2", "Running, 1", "Recent, 1", "Done, 1"]);
             for g in 1..4usize {
                 assert!(rect(window, ("group", g - 1)).y < rect(window, ("group", g)).y, "group {g} below the one before");
             }

@@ -238,7 +238,7 @@ impl Cauldron {
                 .items_center()
                 .gap(px(8.))
                 .child(div().w(px(16.)).flex_none().flex().justify_center().child(mark))
-                .child(div().truncate().text_size(px(12.5)).text_color(fg).child(name.clone()))
+                .child(div().flex_none().text_size(px(12.5)).text_color(fg).child(name.clone()))
                 .child(div().flex_1().min_w_0().truncate().text_align(TextAlign::Right).text_size(px(11.5)).text_color(tone).child(status.clone()))
                 .aria_label(format!("{name}, {status}"))
         };
@@ -273,7 +273,7 @@ impl Cauldron {
     }
 
     /// The card above the version button.
-    pub(super) fn update_card(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn update_card(&self, pal: &'static Palette, w: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let (fg, fg2) = (c(pal.fg), c(pal.fg2));
         let (head, sub) = self.update.text();
         let button = |id: &'static str, label: &'static str, primary: bool| {
@@ -282,7 +282,9 @@ impl Cauldron {
                 .h(px(28.))
                 .px(px(10.))
                 .flex()
+                .flex_none()
                 .items_center()
+                .whitespace_nowrap()
                 .rounded(px(radius::CONTROL))
                 .cursor_pointer()
                 .text_size(px(12.))
@@ -292,7 +294,8 @@ impl Cauldron {
                 .aria_label(label)
                 .child(label)
         };
-        let mut actions = div().flex().items_center().gap(px(6.)).pt(px(4.));
+        // Buttons wrap onto a second line rather than spill out of the card (Charles, 23 Nov).
+        let mut actions = div().flex().flex_wrap().items_center().gap(px(6.)).pt(px(4.));
         let pending = self.updates_pending();
         let busy = matches!(self.update, UpdateState::Installing) || self.cli_rows.iter().any(|r| r.state == RowState::Updating);
         if pending > 0 && !busy {
@@ -314,7 +317,9 @@ impl Cauldron {
                     .h(px(28.))
                     .px(px(10.))
                     .flex()
+                    .flex_none()
                     .items_center()
+                    .whitespace_nowrap()
                     .gap(px(7.))
                     .rounded(px(radius::CONTROL))
                     .cursor_pointer()
@@ -353,7 +358,7 @@ impl Cauldron {
         }
         div()
             .id("update-card")
-            .w(px(300.))
+            .w(px(w))
             .p(px(12.))
             .flex()
             .flex_col()

@@ -145,6 +145,13 @@ pub fn support_width(w: f32) -> f32 {
     metric::SUPPORT_W.min(w / 2.0).max(metric::SUPPORT_MIN_W)
 }
 
+/// A dragged support width: at least [`metric::SUPPORT_MIN_W`], at most what leaves the stream
+/// column its minimum beside a sidebar of its default width.
+pub fn dragged_support_width(w: f32, want: f32) -> f32 {
+    let room = (w - metric::SIDEBAR_W - metric::MAIN_MIN_W - 3.0 * metric::GAP).max(metric::SUPPORT_MIN_W);
+    want.clamp(metric::SUPPORT_MIN_W, room)
+}
+
 /// The window's geometry for exactly the state asked for.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     layout_framed(w, h, state, platform, metric::FRAME)
@@ -161,11 +168,13 @@ pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, fram
 pub struct Sidebar {
     pub w: f32,
     pub push: f32,
+    /// A dragged support card width; 0 is the default ([`support_width`]).
+    pub support: f32,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { w: metric::SIDEBAR_W, push: 0.0 }
+        Sidebar { w: metric::SIDEBAR_W, push: 0.0, support: 0.0 }
     }
 }
 
@@ -183,12 +192,10 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
     let (top, bottom, right) = (frame, h - frame, w - frame);
     let full_h = bottom - top;
 
-    // A floating card, inset from the window's edge as the other cards are (Charles, 23 Nov); the
-    // stream card's left edge stays where it was.
-    let sidebar = state.sidebar_open.then(|| Rect::new(frame, top, sidebar_width(side.w) - frame, full_h));
+    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_width(side.w), full_h));
     let left = sidebar.map_or(frame + side.push, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
-        let sw = support_width(w);
+        let sw = if side.support > 0.0 { dragged_support_width(w, side.support) } else { support_width(w) };
         Rect::new(right - sw, top, sw, full_h)
     });
     let col_right = support.map_or(right, |s| s.x - GAP);

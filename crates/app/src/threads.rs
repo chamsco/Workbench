@@ -30,7 +30,7 @@ impl Group {
         match self {
             Group::NeedsYou => "Needs you",
             Group::Running => "Running",
-            Group::Recent => "Streams",
+            Group::Recent => "Recent",
             Group::Done => "Done",
             Group::Archived => "Archived",
             Group::Snoozed => "Snoozed",
