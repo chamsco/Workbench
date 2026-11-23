@@ -1,5 +1,25 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 22 Nov 2026: README for the current app.** Charles: update the README to the app as it
+is now, with screenshots on the plain (ASCII dither) background. The README now describes Cauldron
+0.2 (streams, Board, crews and automations, Flow, terminal, updates), points the downloads at
+`mac-latest` and `windows-latest`, and refreshes the agent section (repo map with every crate,
+AGENTS.md, Xvfb screenshots). New shots are in `docs/assets/cauldron/`, taken at 1440x900 with
+`backdrop: "plain"` and fixture data; the old `docs/assets/app-*.png` stay for the docs that use them.
+
+- **Stream map moved to the left** (Charles 22:55Z). It sits left of the thread, centred on the
+  transcript, 10px from the card edge and from the messages. At rest it is an 8px rail where only
+  the messages in view are lit; hovering opens it (36px, the view window, a card-coloured halo; GPUI
+  has no backdrop blur, so the halo stands in for one). Fixed on the way: item bounds were offset by
+  the scroll twice, so the lit marks and the window disagreed; and `map_marks` now holds messages
+  past the scroll's extent.
+- **Navigator redone like ChatGPT's** (Charles 23:17Z, with a screenshot). The map is now one dash per
+  turn (a turn = your message and the replies after it), 10px apart, on the thread's left. The turn
+  being read is lit; hovering widens it on the halo and the dash under the pointer shows its prompt
+  and the start of its reply in a card; a click jumps there. Pure helpers `turns`, `current_turn` and
+  `map_step` (tested). **⋯ under a finished reply** opens a menu with Branch into a new stream
+  (`chats.branch`, opens it); more items can be added to it later. The scaled-map code is gone.
+
 **Session, 21 Nov 2026 (round 2): meter bar, lifted frame, four pages.** Charles: "go with after", the content frame gets the same effect as buttons and chat boxes, Usage/Folders/Agents/Library match the destinations board. Done: `Lift::Frame` (long shadow, close lip, stronger edge and top light) on the main, support and split cards; the usage foot is now a meter bar (one slim bar per connected account, no percentage, since several subscriptions have no honest single number), opened by clicking it or by "Open Usage" in the hover card; `shell/pages.rs` holds the Folders (glass tiles, ghost Librarian proposal, New folder), Agents (roster, crew, composer, context panel), Library (Proposals with Accept/Undo, Notes, Graph, Librarian) and the Usage page's hour-by-hour activity tracker (core `usage::activity`, real prompts and tool calls from the CLIs' logs). Mockup parts are tagged: Librarian proposals/notes/graph, agent context/traces/routines, the Agents roster when no familiar exists. Debug env: `CAULDRON_FIXTURE_ACTIVITY=1` fills the heatmap. Not done: notify-at-80% toggle, rotated sheets in the folder art (GPUI has no transforms), real limit percentages (none in local logs). Screenshots: docs/screenshots/pages-r2/.
 
 **Session, 21 Nov 2026: usage beside your name, the frame border back, room above the apps.**

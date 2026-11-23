@@ -378,80 +378,205 @@ impl OpenIn {
 }
 
 impl Cauldron {
-    /// The stream's map (see `map_marks`), drawn from last frame's layout of the transcript.
+    /// A new stream that starts with this one up to and including reply `msg`, opened at once.
+    pub(super) fn branch_reply(&mut self, thread: &str, msg: &str, cx: &mut Context<Self>) {
+        let Some((_, chats)) = self.core.as_ref() else { return };
+        match chats.branch(thread, msg) {
+            Ok(b) => {
+                self.refresh();
+                self.open_thread(b.id);
+            }
+            Err(e) => self.send_error = Some(e.to_string()),
+        }
+        cx.notify();
+    }
+
+    /// The stream's navigator (ChatGPT's, Charles 22 Nov 23:17Z): one dash per turn, evenly
+    /// spaced, on the thread's left and centred on it, `MAP_GAP` from the card's edge and from the
+    /// messages. At rest the dashes are faint and the turn being read is lit and longer. Under the
+    /// pointer it sits on a halo of the card's colour and the dashes widen; the dash under the
+    /// pointer shows its prompt and the start of the reply in a card beside it, and a click scrolls
+    /// to that turn.
     #[inline(never)]
-    fn stream_map(&self, mine: &[bool], pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        const RAIL_W: f32 = 24.;
+    fn stream_map(&self, turns: &[Turn], top_pad: f32, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.map_hover;
         let sh = &self.transcript_scroll;
         let vb = sh.bounds();
         let view_h = f32::from(vb.size.height);
-        let off = -f32::from(sh.offset().y);
-        let total = view_h + f32::from(sh.max_offset().y);
-        let rail = (view_h - 48.).clamp(60., 320.);
-        let items: Vec<(f32, f32)> = (0..mine.len())
-            .map(|i| sh.bounds_for_item(i).map_or((0., 0.), |b| (f32::from(b.origin.y - vb.origin.y) + off, f32::from(b.size.height))))
-            .collect();
-        let (marks, (wy, wh)) = map_marks(&items, off, view_h, total, rail);
-        let mut col = div().id("ticks").absolute().right(px(4.)).top(px(16.)).w(px(RAIL_W)).h(px(rail)).cursor_pointer().aria_label("Map of the stream");
-        // Last frame's place, for a click or a drag.
-        let cell = self.map_box.clone();
-        col = col.child(canvas(move |b, _, _| cell.set(b), |_, _, _, _| {}).absolute().inset_0());
-        col = col.child(div().id("map-window").absolute().top(px(wy)).h(px(wh)).left_0().right_0().rounded(px(3.)).bg(ca(pal.fg, 0.07)).border_1().border_color(ca(pal.fg, 0.12)).test_support());
-        for (k, ((y, h), me)) in marks.iter().zip(mine).enumerate() {
-            // In view when any of it is: the window over it lights it.
-            let seen = *y + *h > wy && *y < wy + wh;
-            let ink = if seen { c(pal.accent) } else { ca(pal.fg4, 0.75) };
+        let view_top = -f32::from(sh.offset().y);
+        // Where each turn starts in the whole stream; a turn not laid out yet reads as its
+        // neighbour's place, which only matters for the lit dash.
+        let starts: Vec<f32> = turns.iter().map(|t| sh.bounds_for_item(t.row).map_or(f32::MAX, |b| f32::from(b.origin.y - vb.origin.y))).collect();
+        let now = current_turn(&starts, view_top, view_h);
+        let step = map_step(turns.len(), view_h - 48.);
+        let rail = step * turns.len() as f32;
+        let pad = if open { 8. } else { 6. };
+        let w = if open { MAP_OPEN_W } else { MAP_W };
+        let mut col = div().relative().w(px(w)).h(px(rail));
+        for (k, turn) in turns.iter().enumerate() {
+            let row = turn.row;
+            let lit = k == now;
+            let picked = open && self.map_pick == Some(k);
+            let long = match (lit || picked, open) {
+                (true, true) => w,
+                (true, false) => w,
+                (false, true) => w - 6.,
+                (false, false) => w - 4.,
+            };
+            let ink = if lit || picked { c(pal.fg) } else { ca(pal.fg4, if open { 0.8 } else { 0.55 }) };
             col = col.child(
                 div()
                     .id(("tick", k))
                     .absolute()
-                    .top(px(*y + 2.))
-                    .h(px(2.))
-                    .right(px(3.))
-                    .w(px(if *me { 8. } else { 16. }))
-                    .rounded(px(1.))
-                    .bg(ink)
-                    .aria_label(if *me { "Your message" } else { "Response" })
-                    .aria_selected(seen)
+                    .top(px(step * k as f32))
+                    .h(px(step))
+                    .left_0()
+                    .w(px(w))
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .aria_label(format!("Turn {}", k + 1))
+                    .aria_selected(lit)
+                    .on_hover(cx.listener(move |this, h: &bool, _, cx| {
+                        if *h {
+                            this.map_pick = Some(k);
+                        } else if this.map_pick == Some(k) {
+                            this.map_pick = None;
+                        }
+                        cx.notify();
+                    }))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let at = start_of(this, row);
+                        this.transcript_scroll.set_offset(point(px(0.), px(-(at - 8.).max(0.))));
+                        // The jump lands after this frame is built: build every message.
+                        *this.transcript_fit.borrow_mut() = None;
+                        cx.notify();
+                    }))
+                    .child(div().h(px(2.)).w(px(long)).rounded(px(1.)).bg(ink))
                     .test_support(),
             );
         }
-        let jump = move |this: &mut Self, y: Pixels| {
-            let b = this.map_box.get();
-            let to = map_offset(f32::from(y - b.origin.y), f32::from(b.size.height), total, view_h);
-            this.transcript_scroll.set_offset(point(px(0.), px(-to)));
-            // The jump lands after this frame is built: build every message.
-            *this.transcript_fit.borrow_mut() = None;
-        };
-        col.on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            jump(this, ev.position.y);
-            cx.notify();
-        }))
-        .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
-            if ev.pressed_button == Some(MouseButton::Left) && this.map_box.get().contains(&ev.position) {
-                jump(this, ev.position.y);
-                cx.notify();
+        let bg = super::backdrop::card_bg(false, pal);
+        let top = top_pad + (view_h - rail) / 2. - pad;
+        let mut el = div()
+            .id("ticks")
+            .absolute()
+            .left(px(MAP_GAP - pad))
+            .top(px(top))
+            .p(px(pad))
+            .rounded(px(10.))
+            .aria_label("Turns in this stream")
+            .when_live(open, |d| {
+                d.bg(bg.opacity(0.86)).shadow(vec![BoxShadow { color: bg.opacity(0.9), offset: point(px(0.), px(0.)), blur_radius: px(22.), spread_radius: px(10.), inset: false }, BoxShadow { color: hsla(0., 0., 0., 0.12), offset: point(px(0.), px(6.)), blur_radius: px(18.), spread_radius: px(-6.), inset: false }])
+            })
+            .on_hover(cx.listener(|this, h: &bool, _, cx| {
+                if this.map_hover != *h {
+                    this.map_hover = *h;
+                    if !*h {
+                        this.map_pick = None;
+                    }
+                    cx.notify();
+                }
+            }))
+            .child(col);
+        // The card for the dash under the pointer: its prompt, then how the reply starts.
+        if let Some(t) = self.map_pick.filter(|_| open).and_then(|k| turns.get(k).map(|t| (k, t))) {
+            let (k, t) = t;
+            let title = if t.prompt.is_empty() { "Start of the stream".to_string() } else { t.prompt.clone() };
+            let mut card = div()
+                .id("map-card")
+                .absolute()
+                .left(px(w + pad * 2. + 6.))
+                .top(px(pad + step * k as f32 + step / 2. - 22.))
+                .w(px(340.))
+                .px(px(14.))
+                .py(px(10.))
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .rounded(px(12.))
+                .bg(c(pal.panel))
+                .border_1()
+                .border_color(c(pal.line))
+                .shadow(super::lift(super::Lift::Card, pal))
+                .child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg)).truncate().child(title));
+            if !t.reply.is_empty() {
+                card = card.child(div().text_size(px(12.5)).line_height(px(18.)).max_h(px(36.)).overflow_hidden().text_color(c(pal.fg3)).child(t.reply.clone()));
             }
-        }))
-        .test_support()
-        .into_any_element()
+            el = el.child(card.test_support());
+        }
+        el.test_support().into_any_element()
     }
 }
 
-/// The stream's map: each message's (top, height) in the whole scrolled content, scaled onto a
-/// rail `rail` px tall, and the window over the view (top, height). Each mark is at least 2px.
-pub(super) fn map_marks(items: &[(f32, f32)], view_top: f32, view_h: f32, total: f32, rail: f32) -> (Vec<(f32, f32)>, (f32, f32)) {
-    let k = if total > 0. { rail / total } else { 0. };
-    let marks = items.iter().map(|(t, h)| (t * k, (h * k - 1.).max(2.))).collect();
-    let win = (view_top * k, (view_h * k).clamp(4., rail));
-    (marks, win)
+/// Where transcript row `row` starts in the whole stream, from last frame's layout.
+fn start_of(this: &Cauldron, row: usize) -> f32 {
+    let sh = &this.transcript_scroll;
+    let vb = sh.bounds();
+    sh.bounds_for_item(row).map_or(0., |b| f32::from(b.origin.y - vb.origin.y))
 }
 
-/// The scroll offset that centres the view on point `y` of the map.
-pub(super) fn map_offset(y: f32, rail: f32, total: f32, view_h: f32) -> f32 {
-    let at = if rail > 0. { y.clamp(0., rail) / rail * total } else { 0. };
-    (at - view_h / 2.).clamp(0., (total - view_h).max(0.))
+/// The navigator's width at rest and under the pointer, and the space on each side of it at rest.
+pub(super) const MAP_W: f32 = 12.;
+const MAP_OPEN_W: f32 = 20.;
+pub(super) const MAP_GAP: f32 = 10.;
+
+/// One turn of a stream for the navigator: the row its prompt is on, the prompt's first line and
+/// the first line of what came back.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Turn {
+    pub row: usize,
+    pub prompt: String,
+    pub reply: String,
+}
+
+/// The stream's turns: each of your messages starts one, and the replies after it belong to it.
+/// Replies before your first message make a turn of their own with no prompt.
+pub(super) fn turns(rows: &[(bool, &str)]) -> Vec<Turn> {
+    let mut out: Vec<Turn> = Vec::new();
+    for (i, (mine, text)) in rows.iter().enumerate() {
+        if *mine || out.is_empty() {
+            out.push(Turn { row: i, prompt: if *mine { gist(text) } else { String::new() }, reply: String::new() });
+            if *mine {
+                continue;
+            }
+        }
+        let t = out.last_mut().expect("pushed above");
+        if t.reply.is_empty() {
+            t.reply = gist(text);
+        }
+    }
+    out
+}
+
+/// A message's first line that says something, without its Markdown marks, at most 160 chars.
+fn gist(text: &str) -> String {
+    let line = text
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['#', '>', '-', '*', '+', ' ']).trim())
+        .find(|l| !l.is_empty() && !l.starts_with("```"))
+        .unwrap_or("");
+    let plain: String = line.replace("**", "").replace('`', "");
+    if plain.chars().count() > 160 {
+        format!("{}…", plain.chars().take(159).collect::<String>())
+    } else {
+        plain
+    }
+}
+
+/// The turn being read: the last one that starts above a line a third of the way down the view.
+/// `starts` are in stream order; one not laid out is `f32::MAX`.
+pub(super) fn current_turn(starts: &[f32], view_top: f32, view_h: f32) -> usize {
+    let line = view_top + view_h / 3.;
+    starts.iter().rposition(|s| *s <= line).unwrap_or(0)
+}
+
+/// The space between dashes: 10px, closer when that would not fit `room`, never under 4px.
+pub(super) fn map_step(n: usize, room: f32) -> f32 {
+    if n == 0 {
+        return 10.;
+    }
+    (room / n as f32).clamp(4., 10.)
 }
 
 /// The branch checked out in `dir`, from `.git/HEAD`; None outside a repo or on a detached HEAD.
@@ -890,8 +1015,7 @@ impl Cauldron {
         };
         let next_at: Vec<u64> = ls.iter().skip(1).map(|l| l.at).chain(std::iter::once(u64::MAX)).collect();
         // The scroll ticks' targets: one per response, by its row in the transcript.
-        let replies: Vec<usize> = ls.iter().enumerate().filter(|(_, l)| !l.mine).map(|(i, _)| i).collect();
-        let mine_rows: Vec<bool> = ls.iter().map(|l| l.mine).collect();
+        let map_turns = turns(&ls.iter().map(|l| (l.mine, l.text.as_str())).collect::<Vec<_>>());
         // Only the messages near the view are built: one further is drawn as an empty box of the
         // height it had last frame, so a scroll step in a long stream lays out a screenful, not
         // every message (26 ms at 240 messages before). The boxes are trusted only when last
@@ -1027,8 +1151,12 @@ impl Cauldron {
             if done || l.meta.is_some() {
                 let copied = self.copied.as_deref() == Some(l.id.as_str());
                 let lid = l.id.clone();
+                let foot_key = format!("foot:{}", l.id);
+                let foot_menu = self.block_menu.as_deref() == Some(foot_key.as_str());
+                let (fk, fid, tid) = (foot_key.clone(), l.id.clone(), t.id.clone());
                 say = say.child(
                     div()
+                        .relative()
                         .flex()
                         .items_center()
                         .gap(px(10.))
@@ -1081,7 +1209,70 @@ impl Cauldron {
                                     .test_support(),
                             )
                         })
-                        .when_some(l.meta.clone(), |d, m| d.child(div().flex().items_center().gap(px(6.)).child(glyph("terminal", 13., fg3)).child(m))),
+                        .when_some(l.meta.clone(), |d, m| d.child(div().flex().items_center().gap(px(6.)).child(glyph("terminal", 13., fg3)).child(m)))
+                        // More (Charles, 22 Nov): what can be done with the whole reply. Branch now; room for more.
+                        .when(done, |d| {
+                            d.child(
+                                div()
+                                    .id(("reply-more", i))
+                                    .size(px(24.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(radius::TAG))
+                                    .cursor_pointer()
+                                    .bg(if foot_menu { c(pal.hover) } else { gpui::transparent_black() })
+                                    .hover(|d| d.bg(c(pal.hover)).text_color(fg))
+                                    .aria_label("More")
+                                    .child(glyph("ellipsis", 14., fg3))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.block_menu = if this.block_menu.as_deref() == Some(fk.as_str()) { None } else { Some(fk.clone()) };
+                                        cx.notify();
+                                    }))
+                                    .test_support(),
+                            )
+                        })
+                        .when(foot_menu, |d| {
+                            d.child(
+                                div()
+                                    .id(("reply-menu", i))
+                                    .absolute()
+                                    .left(px(0.))
+                                    .bottom(px(28.))
+                                    .w(px(220.))
+                                    .p(px(4.))
+                                    .flex()
+                                    .flex_col()
+                                    .rounded(px(radius::CONTROL))
+                                    .bg(c(pal.panel))
+                                    .border_1()
+                                    .border_color(c(pal.line))
+                                    .shadow(super::lift(super::Lift::Card, pal))
+                                    .occlude()
+                                    .child(
+                                        div()
+                                            .id(("reply-branch", i))
+                                            .h(px(28.))
+                                            .px(px(8.))
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(8.))
+                                            .rounded(px(radius::TAG))
+                                            .text_size(px(12.5))
+                                            .text_color(fg)
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(c(pal.hover)))
+                                            .aria_label("Branch into a new stream")
+                                            .child(glyph("git-branch", 13., c(pal.fg2)))
+                                            .child("Branch into a new stream")
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.block_menu = None;
+                                                this.branch_reply(&tid, &fid, cx);
+                                            }))
+                                            .test_support(),
+                                    ),
+                            )
+                        }),
                 );
             }
             for (k, (_, sid, title)) in sides.iter().enumerate().filter(|(_, (at, _, _))| *at >= l.at && *at < next_at[i]) {
@@ -1329,12 +1520,14 @@ impl Cauldron {
             }
             bar.test_support()
         });
-        // The stream's map on the right edge (the board's `.mm`): every message at its place in the
-        // whole stream, scaled to the rail (replies long, yours short), and a window over the part
-        // in view. It follows the scroll; a click or a drag on it scrolls there (Charles, 22 Nov).
-        let ticks = (replies.len() > 1).then(|| self.stream_map(&mine_rows, pal, cx));
-        // Room on the right for the ticks, so they never sit over a bubble.
-        let msgs = msgs.when_live(ticks.is_some(), |d| d.pr(px(28.))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
+        // The stream's map on the thread's left (the board's `.mm`): every message at its place in
+        // the whole stream, scaled to the rail (replies long, yours short). It follows the scroll; a
+        // click or a drag on it scrolls there (Charles, 22 Nov).
+        let (pad_x, pad_y) = (if narrow { 10. } else { 18. }, if short { 8. } else { 14. });
+        let ticks = (map_turns.len() > 1).then(|| self.stream_map(&map_turns, pad_y, pal, cx));
+        // Room on the left for the resting map, the same space on both its sides.
+        let lead = (MAP_GAP * 2. + MAP_W - pad_x).max(0.);
+        let msgs = msgs.when_live(ticks.is_some(), |d| d.pl(px(lead))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
         div()
             .id("thread")
             .relative()
@@ -1342,8 +1535,8 @@ impl Cauldron {
             .flex()
             .flex_col()
             .gap(px(if short { 6. } else { 10. }))
-            .px(px(if narrow { 10. } else { 18. }))
-            .py(px(if short { 8. } else { 14. }))
+            .px(px(pad_x))
+            .py(px(pad_y))
             .child(msgs.test_support())
             .children(ticks)
             .child(
@@ -1451,16 +1644,34 @@ pub(super) mod tests {
         .unwrap();
     }
 
-    /// The map is the whole stream scaled: a message halfway down sits halfway down the rail,
-    /// the window covers the share in view, and a click at the bottom scrolls to the end.
+    /// Each of your messages starts a turn and the replies after it belong to it; replies before
+    /// your first message make one turn without a prompt.
     #[::core::prelude::v1::test]
-    fn the_stream_map_scales_the_whole_stream() {
-        let (marks, win) = super::map_marks(&[(0., 100.), (500., 100.)], 250., 250., 1000., 200.);
-        assert_eq!(marks[1].0, 100., "halfway down the stream, halfway down the rail");
-        assert_eq!(win, (50., 50.), "a quarter of the stream in view, a quarter of the rail");
-        assert_eq!(super::map_offset(200., 200., 1000., 250.), 750., "the bottom of the map: the end");
-        assert_eq!(super::map_offset(0., 200., 1000., 250.), 0.);
-        assert_eq!(super::map_offset(100., 200., 1000., 250.), 375., "centred on the point");
+    fn turns_group_replies_under_the_prompt_that_asked_for_them() {
+        let t = super::turns(&[(false, "Hi, I'm here."), (true, "Fix the **build**"), (false, "## Done\nIt builds."), (false, "More"), (true, "And tests?"), (false, "Yes")]);
+        assert_eq!(t.iter().map(|t| t.row).collect::<Vec<_>>(), vec![0, 1, 4]);
+        assert_eq!(t[0].prompt, "");
+        assert_eq!(t[0].reply, "Hi, I'm here.");
+        assert_eq!(t[1].prompt, "Fix the build");
+        assert_eq!(t[1].reply, "Done", "the first reply's first line, not the later ones");
+        assert_eq!(t[2].reply, "Yes");
+    }
+
+    /// The lit dash is the turn being read: the last that starts above a line a third down the view.
+    #[::core::prelude::v1::test]
+    fn the_lit_turn_is_the_one_at_the_top_of_the_view() {
+        let starts = [0., 400., 900., f32::MAX];
+        assert_eq!(super::current_turn(&starts, 0., 600.), 0);
+        assert_eq!(super::current_turn(&starts, 300., 600.), 1, "400 is above the line at 300+200");
+        assert_eq!(super::current_turn(&starts, 1500., 600.), 2, "a turn not laid out never lights");
+    }
+
+    /// Dashes keep 10px between them, and tighten only when the rail would not fit.
+    #[::core::prelude::v1::test]
+    fn the_navigator_tightens_only_when_it_must() {
+        assert_eq!(super::map_step(8, 500.), 10.);
+        assert_eq!(super::map_step(100, 500.), 5.);
+        assert_eq!(super::map_step(1000, 500.), 4., "never denser than 4px");
     }
 
     /// The stream view (Tight tiles): the context bar over the composer names where it runs, the
