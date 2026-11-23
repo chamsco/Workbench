@@ -15,7 +15,7 @@
   <a href="docs/HOW-IT-WORKS.md">How it works, in full</a>
 </sub></p>
 
-<p align="center"><a href="docs/assets/cauldron/stream.png"><img src="docs/assets/cauldron/stream.png" alt="A stream: the sidebar with New stream and the streams grouped by state; the agent's replies with a git commit card, an applied flow change and On the board links; the composer with Ask, Plan and Act; the stream map on the left of the thread." width="100%"></a></p>
+<p align="center"><a href="docs/assets/cauldron/stream.png"><img src="docs/assets/cauldron/stream.png" alt="A stream: the sidebar with New stream and the streams grouped by state; the agent's replies with a git commit card, an applied flow change and On the board links; the composer with Ask, Plan and Act; the navigator of turns on the left of the thread." width="100%"></a></p>
 
 ---
 
@@ -25,7 +25,7 @@
 
 Cauldron is one window for your agents. The repository is still called Workbench.
 
-- **Streams.** A stream is a conversation with an agent in a folder. Pick the machine, the folder, the CLI, the effort, and how much it may do (Ask, Plan or Act). Branch a side stream off any reply; it opens as a tab under the header.
+- **Streams.** A stream is a conversation with an agent in a folder. Pick the machine, the folder, the CLI, the effort, and how much it may do (Ask, Plan or Act). Branch a side stream off any reply; it opens as a tab under the header. The ⋯ under a reply branches the whole stream up to it into a new one.
 - **Board.** Every stream has a Board beside its Chat. Shipped replies land on it as cards on their own, with their commits and images, and you can pin any block from its ⋯ menu. Click a card to open it, or draw on the board.
 - **Crews and automations.** A crew is a captain agent with helpers, in one project. A crew can propose automations (a nightly test run, a Monday dependency check) that you add with one click. **Missions** hand a goal to the full pipeline.
 - **Flow.** Every coordinator works through the same steps: Ask, Plan, Build, Test, Verify, Ship, Learn. Each step is text you can edit, turn off or reorder in Settings > Flow, a project can keep its own, and Learn can propose a change that you apply from the chat. Test follows the [sharp-testing](crates/core/skills/sharp-testing/SKILL.md) rule by default.
@@ -75,7 +75,7 @@ Cauldron doesn't bring its own model. It finds Claude Code, Codex, Cursor, Grok,
 
 - **Sidebar.** The top row has notifications, search and the sidebar toggle. Under it are Streams, Agents and Library, then **New stream** (Ctrl+N), then your streams: running ones first, then Done and Archived. Each row shows its folder, its branch and the CLI it runs on. Usage and settings sit at the bottom.
 - **Header.** In a stream, **Chat | Board** sits at the top left and the stream's tabs (the stream and its side streams) sit under it. At the top right are the folder, split view and terminal buttons.
-- **Stream map.** A thin rail on the left of the thread shows the whole stream to scale, with the part in view lit. Hover it to open it; click or drag to jump.
+- **Stream navigator.** One dash per turn on the left of the thread, with the turn you are reading lit. Hover it to open it and see each turn's prompt and the start of its reply; click a dash to jump there.
 - **Right edge.** The icons open the panels: Highlights, Changes, Git, Trace, Browser, Files, Simulator and the terminal.
 - **Settings** has six pages: Agents and subscriptions, Flow, General, Appearance, Machines and Shortcuts. Appearance switches between the plain background (the one in these screenshots) and the painted one.
 
