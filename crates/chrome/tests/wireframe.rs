@@ -302,7 +302,10 @@ fn the_sidebar_drags_and_the_band_pushes_the_card() {
     assert_eq!(s.main.x, 320.0 + metric::GAP);
     assert_eq!(s.sidebar_button.right(), 320.0 - 12.0, "the button stays 12px in from the edge");
     assert_eq!(solve(1440.0, 900.0, open, Platform::Mac).sidebar_button.x, 196.0, "the default is where it was");
-    assert_eq!((sidebar_width(100.0), sidebar_width(900.0)), (metric::SIDEBAR_MIN_W, metric::SIDEBAR_MAX_W));
+    assert_eq!((sidebar_width(100.0, Platform::Mac), sidebar_width(200.0, Platform::Mac), sidebar_width(900.0, Platform::Mac)), (72.0, metric::SIDEBAR_MIN_W, metric::SIDEBAR_MAX_W), "below the snap it is the rail");
+    let slim = solve_at(1440.0, 900.0, open, Platform::Mac, Sidebar { w: 100.0, push: 0.0, support: 0.0 });
+    assert_eq!((slim.sidebar.unwrap().w, slim.main.x), (72.0, 72.0 + metric::GAP), "the card sits beside the rail");
+    assert_eq!(slim.sidebar_button.x, slim.main.x + metric::HEAD_IN, "the sidebar button moves into the card's header");
     let folded = ShellState { sidebar_open: false, ..open };
     let (rest, pushed) = (solve(1440.0, 900.0, folded, Platform::Mac), solve_at(1440.0, 900.0, folded, Platform::Mac, Sidebar { w: 236.0, push: 76.0, support: 0.0 }));
     assert_eq!(pushed.main.x, rest.main.x + 76.0);

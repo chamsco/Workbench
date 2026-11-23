@@ -52,6 +52,7 @@ mod mark;
 mod picker;
 mod side;
 mod filter;
+mod rail;
 mod spotlight;
 mod settings;
 mod subs;
@@ -526,7 +527,7 @@ impl Cauldron {
             Self::warm_picture(path, cx);
         }
         c.theme_mode = prefs.theme.clone();
-        c.sidebar_w = prefs.sidebar_w.map_or(metric::SIDEBAR_W, layout::sidebar_width);
+        c.sidebar_w = prefs.sidebar_w.map_or(metric::SIDEBAR_W, |w| layout::sidebar_width(w, platform()));
         c.support_w = prefs.support_w.unwrap_or(0.0);
         c.done_open = prefs.streams_show_done;
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
@@ -1812,8 +1813,6 @@ fn fold_button(id: impl Into<ElementId>, label: &'static str, pal: &'static Pale
 /// Room between the sidebar's top row and the apps row (Charles, 21 Nov 16:00Z: it was cramped).
 const APPS_TOP: f32 = 16.0;
 const SIDE_PL: f32 = 10.0;
-/// Dragging the sidebar's edge narrower than this folds it.
-const SIDEBAR_FOLD_AT: f32 = 170.0;
 /// An agent's figure on its tab and in lists (Charles, 20 Nov): only agents and captains get one;
 /// streams do not.
 const TAB_FIG: f32 = 16.0;
@@ -1823,11 +1822,11 @@ const SIDE_PR: f32 = 8.0;
 const USAGE_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
 /// The card's push when the folded sidebar's band shows: slower than a layout move, so the card
 /// reads as sliding under the band (Charles, 22 Nov: "about 320ms").
-const INDENT_MS: u64 = 320;
+const INDENT_MS: u64 = 200;
 
 /// The folded sidebar's hover indent: wide enough for the lights on macOS, one button on Windows.
 fn indent_w(plat: Platform) -> f32 {
-    if plat == Platform::Mac { 72.0 } else { 48.0 }
+    layout::rail_width(plat)
 }
 
 /// Agent tabs share the room between these widths; below TAB_MIN the row scrolls.
@@ -2175,14 +2174,8 @@ impl Render for Cauldron {
                     if ev.pressed_button != Some(MouseButton::Left) {
                         this.end_sidebar_drag();
                     } else {
-                        let want = w0 + f32::from(ev.position.x) - x0;
-                        if want < SIDEBAR_FOLD_AT {
-                            // Dragged past the narrowest: it folds to the skinny rail (Charles, 23 Nov).
-                            this.end_sidebar_drag();
-                            this.sidebar_open = false;
-                        } else {
-                            this.sidebar_w = layout::sidebar_width(want);
-                        }
+                        // Narrower than the snap, it is the skinny rail: the minimum (Charles, 23 Nov).
+                        this.sidebar_w = layout::sidebar_width(w0 + f32::from(ev.position.x) - x0, platform());
                     }
                     cx.notify();
                     return;
@@ -2248,7 +2241,12 @@ impl Render for Cauldron {
                     .test_support(),
             );
         }
-        if let Some(sp) = s.sidebar {
+        // The skinny rail: the sidebar at its narrowest, icons only (rail.rs).
+        if let Some(sp) = s.sidebar.filter(|sp| sp.rect.w < metric::SIDEBAR_MIN_W) {
+            let host = pane("sidebar", sp.rect).opacity(sp.alpha).overflow_hidden();
+            root = root.child(self.rail_children(host, sp.rect.w, sp.rect.h, -sp.rect.y, false, plat, pal, accent, cx).test_support());
+        }
+        if let Some(sp) = s.sidebar.filter(|sp| sp.rect.w >= metric::SIDEBAR_MIN_W) {
             // The apps row (20 Nov): above New stream, each app its own button with its own fill and
             // border (the stream rows' look, but separate); the open one is darker. Each app swaps the list.
             let mut fnrow = div().id("apps-tray").flex().justify_center().gap(px(apps::TRAY_GAP)).mt(px(if s.bar.is_some() { 0. } else { APPS_TOP })).mb(px(8.)).aria_label("Apps");
@@ -3272,12 +3270,15 @@ impl Render for Cauldron {
                     }))
                     .test_support(),
             );
-            if self.indent {
-                let x0 = (bw - metric::SBTN) / 2.0;
+            // The band slides in and out over INDENT_MS as the card's push eases (Charles, 23 Nov: "a
+            // sliding effect", about 0.2s). It stays drawn while it slides out.
+            let slide = (push / (bw + metric::GAP)).clamp(0.0, 1.0);
+            if self.indent || slide > 0.001 {
+                let left = (slide - 1.0) * bw;
                 let mut band = div()
                     .id("indent")
                     .absolute()
-                    .left_0()
+                    .left(px(left))
                     .top(px(by))
                     .w(px(bw))
                     .h(px(h - by))
@@ -3292,49 +3293,10 @@ impl Render for Cauldron {
                     }));
                 if let Some(img_src) = layer.clone() {
                     band = band
-                        .child(img(img_src).absolute().left_0().top(px(-by)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
+                        .child(img(img_src).absolute().left(px(-left)).top(px(-by)).w(px(w)).h(px(h)).object_fit(ObjectFit::Cover))
                         .child(div().absolute().size_full().bg(backdrop::frame_tint_at(pal, dark, self.frost)));
                 }
-                let at = |y: f32, el: AnyElement| div().absolute().left(px(x0)).top(px(y)).child(el);
-                // Below the lights on macOS, in their place on Windows.
-                let top = if plat == Platform::Mac { 47.0 } else { 10.0 };
-                band = band.child(at(top, self.tipped("indent-search", icon_button("indent-search", "search", "Search streams", pal, false), "Search streams", Side::Right, pal, cx).on_click(cx.listener(|this, _, window, cx| {
-                    this.indent = false;
-                    this.open_spotlight(window, cx);
-                })).test_support().into_any_element()));
-                band = band.child(at(top + 32.0 + if plat == Platform::Mac { 0.0 } else { 5.0 }, self.tipped("indent-new", icon_button("indent-new", "square-pen", NEW_TAB, pal, false), NEW_TAB, Side::Right, pal, cx).on_click(cx.listener(|this, _, window, cx| {
-                    this.indent = false;
-                    this.new_thread(window, cx);
-                })).test_support().into_any_element()));
-                let rule_y = top + if plat == Platform::Mac { 68.0 } else { 73.0 };
-                band = band.child(div().absolute().left(px(x0 + 3.0)).top(px(rule_y)).w(px(22.)).h(px(1.)).bg(c(pal.line)));
-                for (i, (name, label)) in FUNCTIONS.iter().enumerate() {
-                    let b = icon_button(("indent-fn", i), name, label, pal, i == self.section).on_click(cx.listener(move |this, _, _, cx| this.select_section(i, cx)));
-                    band = band.child(at(rule_y + 9.0 + 32.0 * i as f32, self.tipped(("indent-fn", i), b, *label, Side::Right, pal, cx).test_support().into_any_element()));
-                }
-                band = band.child(at(h - by - 70.0, self.tipped("indent-settings", icon_button("indent-settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
-                    this.settings = Some(0);
-                    this.sidebar_open = true;
-                    this.indent = false;
-                    cx.notify();
-                })).test_support().into_any_element()));
-                let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "You".into());
-                let initial = user.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_else(|| "Y".into());
-                band = band.child(
-                    div()
-                        .absolute()
-                        .left(px((bw - 24.0) / 2.0))
-                        .top(px(h - by - 34.0))
-                        .size(px(24.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .bg(accent)
-                        .text_size(px(11.))
-                        .text_color(c(pal.on_accent))
-                        .child(initial),
-                );
+                let band = self.rail_children(band, bw, h - by, 0.0, true, plat, pal, accent, cx);
                 root = root.child(band.test_support());
             }
         } else if self.indent {
