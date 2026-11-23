@@ -17,6 +17,22 @@ pub struct FileEntry {
     pub link: bool,
 }
 
+/// Replace `path` with `bytes` so that a crash leaves either the old file or
+/// the new one, never a truncated mix: write a sibling, flush it to disk,
+/// rename it over. Callers that write the same path from several threads
+/// must order those writes themselves.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let tmp = path.with_file_name(name);
+    let mut f = std::fs::File::create(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+    std::fs::rename(&tmp, path)
+}
+
 /// Depth-first walk, skipping build output and VCS internals.
 ///
 /// A symlink is listed as one (`link`) and is followed only when it stays

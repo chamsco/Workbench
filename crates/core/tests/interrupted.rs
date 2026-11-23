@@ -274,3 +274,48 @@ fn only_an_interrupted_agent_can_carry_on() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_second_resume_while_the_first_is_starting_is_refused() {
+    let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("bs-interrupted-twice-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    fake_claude(&dir);
+    let ws = interrupted_project(&dir);
+    std::env::set_var("BACKSPACE_PREFS", dir.join("prefs.json"));
+    std::env::set_var("BACKSPACE_DATA", dir.join("data"));
+
+    let h = Harness::open(ws).expect("reopen the project");
+    h.resume(1).expect("the first resume starts the worker");
+    // Two processes on one session and one worktree would corrupt both.
+    assert!(h.resume(1).is_err(), "the agent is already carrying on");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unreadable_state_file_is_kept_not_overwritten() {
+    let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("bs-interrupted-corrupt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    fake_claude(&dir);
+    let ws = interrupted_project(&dir);
+    std::env::set_var("BACKSPACE_PREFS", dir.join("prefs.json"));
+    std::env::set_var("BACKSPACE_DATA", dir.join("data"));
+    let state = ws.join(".backspace/state.json");
+    std::fs::write(&state, r#"{"name": "project", "agents": [ cut off"#).unwrap();
+
+    let _h = Harness::open(ws.clone()).expect("a damaged state does not stop the project opening");
+
+    // The tickets in it are the user's: they must survive for a repair, not be
+    // replaced by the next save.
+    let kept: Vec<_> = std::fs::read_dir(ws.join(".backspace"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("state.unreadable-"))
+        .collect();
+    assert_eq!(kept.len(), 1, "the unreadable file is moved aside");
+    assert!(std::fs::read_to_string(kept[0].path()).unwrap().contains("cut off"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -68,6 +68,9 @@ struct Inner {
     memory: Option<String>,
     skills: Skills,
     state: Mutex<ProjectState>,
+    /// Held from snapshot to rename, so saves land in the order they were taken:
+    /// without it a slower, older snapshot could overwrite a newer one.
+    saving: Mutex<()>,
     verdicts: Mutex<HashMap<usize, oneshot::Sender<Verdict>>>,
     /// Sets of visual options waiting on the user's pick, by set id.
     option_picks: Mutex<HashMap<String, oneshot::Sender<String>>>,
@@ -498,9 +501,27 @@ impl Harness {
         };
         // A project opened before carries on: tickets, approvals, spend and
         // the board come back; what was running is marked interrupted.
-        let state = std::fs::read_to_string(root.join(".backspace/state.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<ProjectState>(&t).ok())
+        // A file that is there but can't be read is moved aside, not silently
+        // replaced by the fresh state on the first save: the tickets in it are
+        // the user's, and a newer build may read it again.
+        let state_path = root.join(".backspace/state.json");
+        let old = match std::fs::read_to_string(&state_path) {
+            Ok(t) => match serde_json::from_str::<ProjectState>(&t) {
+                Ok(old) => Some(old),
+                Err(e) => {
+                    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                    let aside = state_path.with_file_name(format!("state.unreadable-{secs}.json"));
+                    let _ = std::fs::rename(&state_path, &aside);
+                    notices.push(crate::gateway::PolicyNotice {
+                        level: crate::gateway::NoticeLevel::Warning,
+                        text: format!("the saved project state could not be read ({e}); it was kept as {} and the project starts empty", aside.display()),
+                    });
+                    None
+                }
+            },
+            Err(_) => None,
+        };
+        let state = old
             .filter(|old| !old.agents.is_empty())
             .map(|old| restore(old, fresh.clone(), config_source))
             .unwrap_or(fresh);
@@ -562,6 +583,7 @@ impl Harness {
             skills,
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
             state: Mutex::new(state),
+            saving: Mutex::new(()),
             verdicts: Mutex::new(HashMap::new()),
             option_picks: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
@@ -1087,13 +1109,15 @@ impl Inner {
         self.save();
     }
 
-    /// Record of the run, not a resumable checkpoint.
+    /// What reopening the project starts from (`restore`). Written whole or
+    /// not at all, so a crash mid-save keeps the previous state.
     fn save(&self) {
+        let _order = self.saving.lock().unwrap();
         let snap = self.state.lock().unwrap().clone();
         let dir = snap.workspace.join(".backspace");
         if std::fs::create_dir_all(&dir).is_ok() {
             if let Ok(json) = serde_json::to_string_pretty(&snap) {
-                let _ = std::fs::write(dir.join("state.json"), json);
+                let _ = crate::files::write_atomic(&dir.join("state.json"), json.as_bytes());
             }
         }
     }
@@ -2593,8 +2617,8 @@ fn current_account(cli: &str) -> Option<String> {
 /// disk and a CLI worker answers in its saved session.
 fn resume(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, id: AgentId) -> Result<String> {
     let (key, session, was_triage) = {
-        let s = inner.state.lock().unwrap();
-        let a = s.agents.get(id).context("no such agent")?;
+        let mut s = inner.state.lock().unwrap();
+        let a = s.agents.get_mut(id).context("no such agent")?;
         if a.id == MAIN {
             bail!("the main agent is not resumed: send it a message instead");
         }
@@ -2607,8 +2631,14 @@ fn resume(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, id: AgentId) -> Resul
             ),
         }
         let key = a.ticket.clone().context("this agent has no ticket to resume")?;
+        // Claimed under the same lock that checked it: a second resume (a
+        // double click, the planner and the user at once) finds it running
+        // and is refused, instead of starting a second process on the same
+        // session and worktree.
+        a.status = AgentStatus::Running;
         (key, a.ses.clone(), a.kind == AgentKind::Triage)
     };
+    inner.save();
     // The ticket goes back to in-progress; a triage agent re-classifies the
     // ticket it already has a record for.
     if was_triage {
@@ -2616,18 +2646,25 @@ fn resume(inner: &Arc<Inner>, rt: &tokio::runtime::Handle, id: AgentId) -> Resul
     } else {
         inner.ticket(&key, |t| t.state = TicketState::InProgress);
     }
+    // Tickets blocked by this one wait for it, as for a first dispatch.
+    let (tx, rx) = watch::channel(false);
+    inner.done.lock().unwrap().insert(key.clone(), rx);
     let (i2, k2) = (inner.clone(), key.clone());
-    rt.spawn(async move {
+    let h = rt.spawn(async move {
         let res = if was_triage {
             run_triage_again(i2.clone(), id).await
         } else {
-            run_worker_with(i2.clone(), id, session).await
+            run_worker_with(i2.clone(), id, session, true).await
         };
         settle(&i2, id, &k2, &res);
+        i2.tasks.lock().unwrap().remove(&id);
+        let _ = tx.send(true);
         let line = report_line(&i2, id, res);
         i2.log(MAIN, LogKind::System, line);
         i2.touch();
     });
+    // So Stop can end it, like any dispatched worker.
+    inner.tasks.lock().unwrap().insert(id, h.abort_handle());
     Ok(format!(
         "`{key}` is carrying on in the background; its result comes to you."
     ))
@@ -4136,21 +4173,20 @@ fn settle(inner: &Inner, id: AgentId, key: &str, res: &Result<Deliverable>) {
 /// Everything below `blockers` is shared with `resume`, so a resumed ticket
 /// goes through the same check, review and merge as a fresh one.
 fn run_worker(inner: Arc<Inner>, id: AgentId) -> BoxFuture<'static, Result<Deliverable>> {
-    run_worker_with(inner, id, None)
+    run_worker_with(inner, id, None, false)
 }
 
 fn run_worker_with(
     inner: Arc<Inner>,
     id: AgentId,
     session: Option<String>,
+    interrupted: bool,
 ) -> BoxFuture<'static, Result<Deliverable>> {
     async move {
         // A worker a restart cut off keeps the worktree it already has: only
         // the process went away, so re-adding the worktree would either fail
-        // or (worse) wipe what it built.
-        let interrupted = inner.state.lock().unwrap().agents[id].status == AgentStatus::Interrupted;
+        // or (worse) wipe what it built. `resume` already marked it running.
         if interrupted {
-            inner.set_status(id, AgentStatus::Running);
             inner.log(
                 id,
                 LogKind::System,
