@@ -74,6 +74,9 @@ struct Inner {
     /// Side effects that must not repeat after a crash (receipts.rs). None if
     /// the database can't be opened: the project then runs as before.
     receipts: Option<crate::receipts::Receipts>,
+    /// How the state changed, numbered, for clients that follow it (changes.rs).
+    /// None if the database can't be opened: clients then reload the state.
+    journal: Option<crate::changes::Journal>,
     verdicts: Mutex<HashMap<usize, oneshot::Sender<Verdict>>>,
     /// Sets of visual options waiting on the user's pick, by set id.
     option_picks: Mutex<HashMap<String, oneshot::Sender<String>>>,
@@ -531,6 +534,7 @@ impl Harness {
 
         let (changed_tx, changed_rx) = async_channel::bounded(1);
         let prefs_at_open = crate::prefs::Prefs::load();
+        let journal_initial = serde_json::to_value(&state).ok();
         let inner = Arc::new_cyclic(|me: &std::sync::Weak<Inner>| Inner {
             // A routing call is held against the project's budget while it is in flight.
             router: Router::new(http.clone(), cfg.clone()).with_local(local_jobs(&prefs_at_open)).with_meter({
@@ -588,6 +592,7 @@ impl Harness {
             state: Mutex::new(state),
             saving: Mutex::new(()),
             receipts: crate::receipts::Receipts::open(&root.join(".backspace/receipts.db")).ok(),
+            journal: journal_initial.and_then(|v| crate::changes::Journal::open(&root.join(".backspace/changes.db"), &v).ok()),
             verdicts: Mutex::new(HashMap::new()),
             option_picks: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
@@ -638,6 +643,28 @@ impl Harness {
             for c in r.in_flight().unwrap_or_default() {
                 inner.log(MAIN, LogKind::System, format!("a `{}` was cut off by a restart: {}", c.kind, c.key));
             }
+        }
+
+        // Record what changed, a moment after it settles, so a burst of
+        // updates is one numbered change. Holds the project weakly: the
+        // task ends with it.
+        if inner.journal.is_some() {
+            let (weak, mut rx) = (Arc::downgrade(&inner), inner.version.subscribe());
+            rt.spawn(async move {
+                while rx.changed().await.is_ok() {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    let Some(inner) = weak.upgrade() else { return };
+                    let Ok(v) = serde_json::to_value(&*inner.state.lock().unwrap()) else { continue };
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Some(j) = &inner.journal {
+                            if let Err(e) = j.record(&v) {
+                                eprintln!("change journal: {e:#}");
+                            }
+                        }
+                    })
+                    .await;
+                }
+            });
         }
 
         let (to_main, inbox) = mpsc::unbounded_channel();
