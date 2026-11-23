@@ -722,10 +722,30 @@ fn gemini_line(line: &str, fail: &mut Option<String>, on: Sink<'_>) {
     }
 }
 
+/// Claude Code's `api_retry` line as one status: "API overloaded (529). Retry 2 of 10 in 4s".
+fn api_retry(v: &Value) -> String {
+    let status = v["error_status"].as_u64();
+    let why = match (v["error"].as_str().filter(|e| !e.is_empty()), status) {
+        (_, Some(529)) => "The API is overloaded".to_string(),
+        (_, Some(429)) => "Rate limited".to_string(),
+        (Some(e), Some(s)) => format!("{} ({s})", e.replace('_', " ")),
+        (Some(e), None) => e.replace('_', " "),
+        (None, Some(s)) => format!("The API answered {s}"),
+        (None, None) => "The API is not answering".to_string(),
+    };
+    let n = v["attempt"].as_u64().unwrap_or(1);
+    let of = v["max_retries"].as_u64().map_or_else(String::new, |m| format!(" of {m}"));
+    let wait = v["retry_delay_ms"].as_u64().map_or_else(String::new, |ms| format!(" in {}s", (ms + 999) / 1000));
+    format!("{why}. Retry {n}{of}{wait}")
+}
+
 /// One line of `claude -p --output-format stream-json`.
 fn claude_line(line: &str, got_partial: &mut bool, fail: &mut Option<String>, on: Sink<'_>) {
     let Ok(v) = serde_json::from_str::<Value>(line) else { return };
     match v["type"].as_str() {
+        // Claude Code retries a failing API call on its own and says so here; without this the
+        // turn looks frozen. One status line, replaced by each attempt and cleared by the next text.
+        Some("system") if v["subtype"] == "api_retry" => on(Event::Wait { text: api_retry(&v) }),
         Some("system") => {
             if let Some(s) = v["session_id"].as_str() {
                 on(Event::Session { id: s.into() });
@@ -1035,6 +1055,20 @@ mod tests {
         assert!(ev.contains(&Event::Cost { usd: 0.01 }));
         let text: String = ev.iter().filter_map(|e| if let Event::Text { text } = e { Some(text.as_str()) } else { None }).collect();
         assert_eq!(text, "Looking.One file.", "partial deltas only, the full assistant text is not repeated");
+    }
+
+    /// Catches: Claude Code's API retries falling into the generic `system` arm and vanishing, so
+    /// a throttled turn looks frozen with no reason given.
+    #[test]
+    fn a_claude_api_retry_is_a_wait_not_silence() {
+        let (mut got, mut fail, mut ev) = (false, None, vec![]);
+        let line = r#"{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"retry_delay_ms":3500,"error_status":529,"error":"overloaded_error"}"#;
+        claude_line(line, &mut got, &mut fail, &mut |e| ev.push(e));
+        match ev.as_slice() {
+            [Event::Wait { text }] => assert!(text.contains("2 of 10") && text.contains("4s"), "{text}"),
+            other => panic!("expected one Wait, got {other:?}"),
+        }
+        assert!(fail.is_none(), "a retry is not a failure");
     }
 
     #[test]

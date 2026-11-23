@@ -73,6 +73,7 @@ pub mod tools;
 pub mod cli_update;
 pub mod update;
 pub mod usage;
+pub mod unfurl;
 
 pub use config::Config;
 pub use effort::Effort;

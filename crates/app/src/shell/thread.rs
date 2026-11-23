@@ -56,7 +56,7 @@ pub(super) fn failure(e: &str) -> Failure {
             }
         }
     }
-    let output: Vec<String> = ls.iter().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect();
+    let output = collapse_repeats(ls.iter().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect());
     // The last line that reads as an error, without its "Error:" prefix.
     let said = output.iter().rev().find(|l| !l.trim_start().starts_with('>')).map(|l| l.trim().trim_start_matches("Error:").trim().to_string());
     let low = e.to_lowercase();
@@ -74,6 +74,25 @@ pub(super) fn failure(e: &str) -> Failure {
     // When the output is only the reason itself, there is nothing more to show.
     let output = if output.len() == 1 && said.as_deref() == Some(output[0].trim().trim_start_matches("Error:").trim()) && code.is_none() { Vec::new() } else { output };
     Failure { reason, code, hint, output }
+}
+
+/// Lines in a row that say the same thing but for their numbers ("Retrying in 2s (attempt 1)",
+/// "... (attempt 2)") as one: the last of them, counted (Charles, 23 Nov: retries came out one
+/// line each).
+fn collapse_repeats(lines: Vec<String>) -> Vec<String> {
+    let shape = |l: &str| l.chars().filter(|ch| !ch.is_ascii_digit()).collect::<String>();
+    let mut out: Vec<(String, String, usize)> = Vec::new();
+    for l in lines {
+        let sh = shape(&l);
+        match out.last_mut() {
+            Some((last, s, n)) if *s == sh => {
+                *last = l;
+                *n += 1;
+            }
+            _ => out.push((l, sh, 1)),
+        }
+    }
+    out.into_iter().map(|(l, _, n)| if n > 1 { format!("{l}  (×{n})") } else { l }).collect()
 }
 
 pub(super) fn lines(t: &Thread) -> Vec<Line> {
@@ -195,19 +214,41 @@ fn head(s: &str, n: usize) -> &str {
 
 /// How much of a live paragraph of `total` characters to show at `now` (ms), from where it was
 /// (`shown`, when last drawn at `last`). Providers send bursts (OpenCode: half a minute of
-/// nothing, then a paragraph in under a second), so the text comes out at a steady pace that
-/// gains on what has arrived: never slower than 60 characters a second, about a third of a second
-/// behind at most.
+/// nothing, then a paragraph in under a second; Claude a sentence at a time), so the text comes
+/// out at a reading pace instead (Charles, 23 Nov: "word by word ... so I can understand"): never
+/// slower than 50 characters a second, gaining on a backlog over about a second and a half, but no
+/// faster than 260 a second (a few words a frame) unless the backlog is past 4000 characters, a
+/// pasted file, which would take too long to type out. Only the drawing is paced; core has the
+/// whole text at once.
 fn pace(shown: f32, last: u64, total: usize, now: u64) -> f32 {
     let dt = now.saturating_sub(last).min(200) as f32;
     let behind = (total as f32 - shown).max(0.0);
-    (shown + dt * (behind / 300.0).max(0.06)).min(total as f32)
+    let speed = if behind > 4000.0 { behind / 1500.0 } else { (behind / 1500.0).clamp(0.05, 0.26) };
+    (shown + dt * speed).min(total as f32)
+}
+
+/// The first `n` characters of `s`, cut back to the last whole word, so the text grows a word at
+/// a time instead of letter by letter.
+fn word_head(s: &str, n: usize) -> &str {
+    let h = head(s, n);
+    if h.len() == s.len() {
+        return s;
+    }
+    // Mid-word: back to the end of the word before it.
+    if s[h.len()..].starts_with(char::is_whitespace) {
+        return h;
+    }
+    match h.rfind(char::is_whitespace) {
+        Some(i) => &h[..i],
+        None => "",
+    }
 }
 
 /// A reply on its way: what its status line says.
 fn live(s: Status) -> Option<&'static str> {
     match s {
-        Status::Sending => Some("Waiting for the reply"),
+        // Thinking until the first word or step arrives (Charles, 23 Nov: it looked frozen).
+        Status::Sending => Some("Thinking"),
         Status::Streaming => Some("Writing"),
         _ => None,
     }
@@ -838,7 +879,8 @@ impl Cauldron {
             .rounded(px(radius::PANEL))
             .border_1()
             .border_color(c(pal.line_strong))
-            .bg(c(pal.inset))
+            .bg(c(pal.panel))
+            .shadow(super::lift(super::Lift::Button, pal))
             .overflow_hidden()
             .aria_label(e.to_string())
             .child(
@@ -1037,29 +1079,34 @@ impl Cauldron {
             }
             let streaming = l.status == Status::Streaming && !cx.reduce_motion();
             let mut shown = if l.text.is_empty() { pending(l.status).unwrap_or("").to_string() } else { l.text.clone() };
-            // The live paragraph, paced (see `pace`), with a caret at its end.
+            // The live paragraph, paced (see `pace`), with a caret at its end. It keeps its pace
+            // after the reply ends or a step starts under it, until the drawing has caught up:
+            // otherwise the rest would land all at once.
             let last_text = l.parts.iter().rposition(|p| matches!(p, super::ledger::Part::Text(_)));
-            let tail = if !streaming || l.mine {
+            let candidate = if l.mine || cx.reduce_motion() {
                 None
             } else if l.parts.is_empty() {
                 (!l.text.is_empty()).then(|| (format!("{}:", l.id), l.text.clone()))
             } else {
-                last_text.filter(|&j| j + 1 == l.parts.len()).and_then(|j| match &l.parts[j] {
+                last_text.and_then(|j| match &l.parts[j] {
                     super::ledger::Part::Text(t) => Some((format!("{}:{j}", l.id), t.clone())),
                     _ => None,
                 })
             };
+            let growing = streaming && (l.parts.is_empty() || last_text == Some(l.parts.len() - 1));
+            let tail = candidate.filter(|(key, text)| growing || self.paced.borrow().get(key).is_some_and(|(n, _)| (*n as usize) < text.chars().count()));
             let paced: Option<String> = tail.map(|(key, text)| {
                 let total = text.chars().count();
                 let mut map = self.paced.borrow_mut();
-                // First seen with text already there (a stream opened mid-reply): no replay.
-                let (was, last) = map.get(&key).copied().unwrap_or((total as f32, now_ms));
+                // First seen: a short start is typed out from the top; a long one (a stream
+                // opened mid-reply) is not replayed.
+                let (was, last) = map.get(&key).copied().unwrap_or((if total < 600 { 0.0 } else { total as f32 }, now_ms));
                 let n = pace(was, last, total, now_ms);
                 map.insert(key, (n, now_ms));
                 if (n as usize) < total {
                     self.pace_behind.set(true);
                 }
-                head(&text, n as usize).to_string()
+                word_head(&text, n as usize).to_string()
             });
             if let (Some(p), true) = (&paced, l.parts.is_empty()) {
                 shown = p.clone();
@@ -1132,6 +1179,11 @@ impl Cauldron {
                     let label = l.wait.clone().unwrap_or_else(|| label.to_string());
                     d.child(status_line(i, label, l.status == Status::Streaming && l.wait.is_none(), (l.status == Status::Sending).then_some(l.at), now_ms, cx.reduce_motion(), pal))
                 });
+            // Between steps nothing else moves (the model is reading what a tool gave back), so a
+            // live reply whose last part is a finished step says it is thinking; a retry the CLI
+            // waits on says that instead, in the same one line, updated in place.
+            let idle_after_step = matches!(l.parts.last(), Some(super::ledger::Part::Step(st)) if st.end.is_some());
+            let tail_line = (!l.parts.is_empty() && live(l.status).is_some() && (l.wait.is_some() || idle_after_step)).then(|| l.wait.clone().unwrap_or_else(|| "Thinking".to_string()));
             // The ledger (board A): the text and the steps in the order they happened.
             for (j, part) in l.parts.iter().enumerate() {
                 say = match part {
@@ -1141,6 +1193,15 @@ impl Cauldron {
                     }
                     super::ledger::Part::Step(st) => say.child(self.step_el(st, st.end.is_none(), now_ms, pal, cx)),
                 };
+            }
+            // Link previews under a finished reply, once its text has all been drawn.
+            if live(l.status).is_none() && paced.is_none() && !l.text.is_empty() {
+                if let Some(cards) = self.unfurl_cards(i, &l.text, pal, cx) {
+                    say = say.child(cards);
+                }
+            }
+            if let Some(label) = tail_line {
+                say = say.child(status_line(i, label, false, None, now_ms, cx.reduce_motion(), pal));
             }
             if let Some(e) = &l.error {
                 say = say.child(self.failure_card(i, &l.id, e, i == last, &t.id, pal, cx));
@@ -1435,6 +1496,8 @@ impl Cauldron {
         // The model picker (Charles, 21 Nov: "a top rail on top ... on the chat box"): a tray as
         // wide as the box, rising from its top edge.
         if self.start.route_menu == Some(super::subs::PickFor::Thread(t.id.clone())) {
+            // Square on top under the tray, so the two read as one card.
+            composer = composer.rounded_t(px(0.));
             let tray = self.model_picker(super::subs::PickFor::Thread(t.id.clone()), Some(&t.route), pal, cx);
             composer = composer.relative().child(
                 deferred(
@@ -1444,10 +1507,9 @@ impl Cauldron {
                         .left_0()
                         .right_0()
                         .bottom(relative(1.))
-                        .pb(px(6.))
                         .child(tray)
                         .test_support()
-                        .with_animation("pick-rise", super::motion::anim(200.), |d, t| d.opacity(t).pb(px(6.0 - 6.0 * (1.0 - t)))),
+                        .with_animation("pick-rise", super::motion::anim(200.), |d, t| d.opacity(t)),
                 )
                 .with_priority(3),
             );
@@ -1575,6 +1637,10 @@ pub(super) mod tests {
         let g = super::failure("claude is not installed");
         assert_eq!(g.reason, "claude is not installed");
         assert!(g.output.is_empty(), "nothing more to show than the reason");
+        // Catches: a CLI's retry lines (the same words, a new attempt number) listed one by one.
+        let r = super::failure("opencode exited with code 1:\nRetrying in 2s (attempt 1)\nRetrying in 4s (attempt 2)\nRetrying in 8s (attempt 3)\nError: overloaded");
+        assert_eq!(r.output.len(), 2, "{:?}", r.output);
+        assert!(r.output[0].contains("attempt 3") && r.output[0].contains('3'), "the newest retry stands for them all: {:?}", r.output);
     }
     use super::super::{Cauldron, Threads};
     use super::lines;
@@ -1899,7 +1965,7 @@ pub(super) mod tests {
             window.click(("thread", 0usize), cx);
         })
         .unwrap();
-        for (status, label, text) in [(Status::Streaming, "Writing", ""), (Status::Sending, "Waiting for the reply", ""), (Status::Streaming, "Writing", "Half a sen")] {
+        for (status, label, text) in [(Status::Streaming, "Writing", ""), (Status::Sending, "Thinking", ""), (Status::Streaming, "Writing", "Half a sen")] {
             handle
                 .update(cx, |c, _, _| {
                     let t = c.thread.as_mut().unwrap();

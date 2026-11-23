@@ -46,3 +46,11 @@ pub(super) fn shell_header(icon: &'static str, title: String, subtitle: String, 
         )
         .when_some(aside, |d, a| d.child(a))
 }
+
+/// A block in the transcript (a command, a tool call, a failure, a thought opened): solid, so it
+/// reads over a painted backdrop or a glass card (Charles, 23 Nov: "way too transparent, hard to
+/// read"). The panel tone with a hairline edge and the buttons' small lift; every block uses this
+/// one face so they look alike.
+pub(super) fn block(pal: &'static Palette) -> Div {
+    div().rounded(px(radius::INSET)).bg(c(pal.panel)).border_1().border_color(c(pal.line_strong)).shadow(super::lift(super::Lift::Button, pal))
+}

@@ -22,7 +22,8 @@ pub(crate) const STACK_OPEN_H: f32 = super::picker::COLS_H;
 
 /// Stacked picker: how far the card hides under the box while folded, and the gap it drops to.
 pub(crate) const STACK_TUCK: f32 = 12.0;
-pub(crate) const STACK_GAP: f32 = 4.0;
+// No gap: the card stays joined to the box as it drops (Charles, 23 Nov).
+pub(crate) const STACK_GAP: f32 = 0.0;
 
 /// The new-stream tray's height once it has unfolded (Model tray A).
 pub(crate) const TRAY_OPEN_H: f32 = 216.0;

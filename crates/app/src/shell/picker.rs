@@ -132,9 +132,12 @@ impl Cauldron {
             .id("route-menu")
             .h(px(TRAY_B_H))
             .flex()
-            .rounded(px(radius::PANEL))
+            // It sits flush on the box, one piece with it (Charles, 23 Nov: the gap under it
+            // split the two): round on top only, and the box's own top edge is the seam.
+            .rounded_t(px(radius::SHELL))
             .bg(c(pal.raised))
             .border_1()
+            .border_b_0()
             .border_color(c(pal.line))
             .shadow(vec![drop(tokens::shadow::MENU)])
             .text_size(px(12.5))

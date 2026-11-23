@@ -361,3 +361,78 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 }
+
+impl Cauldron {
+    /// Preview cards for the first three web links in a finished reply (Charles, 23 Nov): the
+    /// site, the page's title and a line of what it is, fetched once per URL in the background.
+    /// A click opens the link as its text does; a page that could not be read shows its site.
+    pub(super) fn unfurl_cards(&self, i: usize, text: &str, pal: &'static Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let mut urls: Vec<String> = Vec::new();
+        for (_, l) in find(text, &[], None) {
+            if let Link::Url(u) = l {
+                let h = backspace_core::unfurl::host(&u);
+                // Local servers are the user's own work in progress, not pages to preview.
+                if !urls.contains(&u) && !h.starts_with("localhost") && !h.starts_with("127.") && !h.starts_with("0.0.0.0") {
+                    urls.push(u);
+                }
+            }
+            if urls.len() == 3 {
+                break;
+            }
+        }
+        if urls.is_empty() {
+            return None;
+        }
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let mut col = div().id(("unfurls", i)).flex().flex_col().gap(px(6.)).max_w(px(520.));
+        for (k, u) in urls.into_iter().enumerate() {
+            let known = self.unfurls.borrow().get(&u).cloned();
+            // Tests stay off the network: their previews stay loading.
+            if known.is_none() && !cfg!(test) {
+                self.unfurls.borrow_mut().insert(u.clone(), None);
+                let (cache, key, url) = (self.unfurls.clone(), u.clone(), u.clone());
+                cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    let got = cx.background_executor().spawn(async move { backspace_core::unfurl::fetch(&url) }).await;
+                    let _ = this.update(cx, |_, cx| {
+                        cache.borrow_mut().insert(key, Some(got));
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+            let card = known.flatten();
+            let site = card.as_ref().map(|c| c.site.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| backspace_core::unfurl::host(&u));
+            let title = card.as_ref().and_then(|c| c.title.clone());
+            let desc = card.as_ref().and_then(|c| c.description.clone());
+            let loading = card.is_none();
+            let open = u.clone();
+            col = col.child(
+                super::surface::block(pal)
+                    .id(("unfurl", i * 10 + k))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(12.))
+                    .py(px(9.))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(pal.raised)))
+                    .aria_label(format!("Link preview: {}", title.clone().unwrap_or_else(|| u.clone())))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(div().truncate().text_size(px(11.)).text_color(fg3).child(site))
+                            .child(div().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(if loading { fg3 } else { fg }).child(title.unwrap_or_else(|| if loading { "Loading preview…".into() } else { u.clone() })))
+                            .when_some(desc, |d, t| d.child(div().text_size(px(12.)).line_height(px(17.)).max_h(px(34.)).overflow_hidden().text_color(fg2).child(t))),
+                    )
+                    .child(div().flex_none().child(glyph("external-link", 13., fg3)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_link(Link::Url(open.clone()), true, cx)))
+                    .test_support(),
+            );
+        }
+        Some(col.into_any_element())
+    }
+}

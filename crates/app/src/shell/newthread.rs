@@ -50,6 +50,9 @@ pub(crate) struct Start {
     pub(crate) providers_loading: bool,
     /// The open route menu, and whose route it sets.
     pub(crate) route_menu: Option<super::subs::PickFor>,
+    /// Where the box's bottom and the screen's bottom were last drawn with the picker shut (y,
+    /// window px): how far the stacked card can drop before it would leave the window.
+    pub(crate) fit: std::rc::Rc<std::cell::Cell<(f32, f32)>>,
     /// The model picker (board Picker A): the CLI its rail shows, the model its detail panel
     /// describes ("cli:model"), its search, and whether the list is grouped by provider.
     pub(crate) pick_cli: Option<String>,
@@ -503,8 +506,19 @@ impl Cauldron {
             .aria_expanded(self.chip_menu == Some("nt-effort"))
             .child(effort_label)
             .child(glyph("chevron-down", 13., fg3))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_chip_menu("nt-effort", cx)))
-            .children(self.chip_menu_el("nt-effort", pal, cx))
+            // One effort control (Charles, 23 Nov: the model picker already has Reasoning): the
+            // chip says what is set and opens the picker under the box, where it is chosen.
+            .on_click(cx.listener(|this, _, window, cx| {
+                cx.stop_propagation();
+                let was = this.start.route_menu == Some(super::subs::PickFor::New);
+                this.start.route_menu = if was { None } else { Some(super::subs::PickFor::New) };
+                if !was {
+                    let r = this.start.route.clone();
+                    this.load_providers(cx);
+                    this.open_picker(r.as_ref(), window, cx);
+                }
+                cx.notify();
+            }))
             .test_support();
         let bar = div()
             .id("nt-bar")
@@ -585,7 +599,12 @@ impl Cauldron {
             } else {
                 (mid.pt(px(tuck)).h(px(40.0 + tuck)).into_any_element(), spacer.h(px(40.)).into_any_element())
             };
-            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.))).when_some(self.files_tray(pal, cx), |d, t| d.child(t)).child(nt_box).test_support();
+            let fit = self.start.fit.clone();
+            let front = glass(div().id("nt-front").relative().flex().flex_col().p(px(3.)))
+                .when_some(self.files_tray(pal, cx), |d, t| d.child(t))
+                .child(nt_box)
+                .when(!tray_open, |d| d.child(canvas(move |b, _, _| fit.set((f32::from(b.bottom()), fit.get().1)), |_, _, _, _| {}).absolute().inset_0()))
+                .test_support();
             nt_stack.flex_col().child(mid).child(front).child(spacer)
         } else {
             glass(nt_stack.flex_col().p(px(3.))).when_some(self.files_tray(pal, cx), |d, t| d.child(t)).child(nt_box).child(bar).when_live(tray_open, |d| d.child(self.route_tray(pal, cx)))
@@ -595,8 +614,20 @@ impl Cauldron {
         // centred box above stays exactly where it was, and the lines under it hide meanwhile.
         // The stacked card is tall (picker v2): the box rides up as it drops, so the whole stack
         // stays in the window; the unfolding tray keeps the box where it was.
-        let nt_stack = if tray_open && !stacked {
-            nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), move |d, t| d.mb(px(-grow * t))).into_any_element()
+        // Stacked too (Charles, 23 Nov: "everything floats up ... they should stay together, don't
+        // move, expand downward"): the box keeps its place and the card unfolds under it.
+        // In a short window the box rises only as far as the card needs to stay in view.
+        let give = if stacked {
+            let (box_bottom, screen_bottom) = self.start.fit.get();
+            let below = 40.0 + super::subs::STACK_OPEN_H + super::subs::STACK_GAP;
+            let over = if screen_bottom > 0.0 { (box_bottom + below + 8.0 - screen_bottom).max(0.0) } else { 0.0 };
+            // The column is centred, so growing it by 2px lifts the box by 1.
+            (grow - 2.0 * over).max(0.0)
+        } else {
+            grow
+        };
+        let nt_stack = if tray_open {
+            nt_stack.with_animation("nt-stack-drop", super::motion::anim(220.), move |d, t| d.mb(px(-give * t))).into_any_element()
         } else {
             nt_stack.into_any_element()
         };
@@ -639,6 +670,10 @@ impl Cauldron {
             .px(px(24.))
             .pb(px(40.))
             .child(wrap)
+            .when(!tray_open, |d| {
+                let fit = self.start.fit.clone();
+                d.child(canvas(move |b, _, _| fit.set((fit.get().0, f32::from(b.bottom()))), |_, _, _, _| {}).absolute().inset_0())
+            })
             .test_support();
         screen.into_any_element()
     }
@@ -1544,8 +1579,8 @@ mod tests {
     }
 
     /// The stacked picker (Settings > Appearance > Model picker): folded, its card is tucked
-    /// behind the box with only the chips showing; open, it drops below the box a small gap apart
-    /// and holds picker v2; the box rides up so the whole stack stays in the window.
+    /// behind the box with only the chips showing; open, it drops below the box, joined to it, and
+    /// holds picker v2; the box stays where it was (Charles, 23 Nov: it floated up and came apart).
     #[gpui_kit::test]
     fn the_stacked_picker_drops_out_from_behind_the_box(cx: &mut TestAppContext) {
         let _prefs = super::super::thread::tests::prefs_guard();
@@ -1565,9 +1600,10 @@ mod tests {
             window.click("nt-model", cx);
             window.render_frame(cx);
             let moved = rect(window, "nt-front");
-            assert!(moved.1 < front.1 && moved.0 == front.0, "the box rides up: {moved:?} from {front:?}");
+            // This window is short: the box gives only the few px the card needs to stay in view.
+            assert!(moved.1 <= front.1 && front.1 - moved.1 < 20.0 && moved.0 == front.0, "the box (nearly) stays put: {moved:?} from {front:?}");
             let card = rect(window, "nt-card");
-            assert!((card.1 - (moved.1 + moved.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out a small gap below: {card:?}");
+            assert!((card.1 - (moved.1 + moved.3 + super::super::subs::STACK_GAP)).abs() <= 1.0, "dropped out joined to the box: {card:?}");
             let screen = rect(window, "new-thread-screen");
             assert!(card.1 + card.3 <= screen.1 + screen.3, "the whole stack stays in the window: {card:?} {screen:?}");
             for id in ["pick-cols", "route-manage"] {
@@ -1622,6 +1658,8 @@ mod tests {
             assert!((tray.0 - boxr.0).abs() <= 2.0 && (tray.2 - boxr.2).abs() <= 2.0, "as wide as the chat box: {tray:?} {boxr:?}");
             assert!(tray.3 <= super::super::picker::TRAY_B_H + 8.0, "short: {tray:?}");
             assert!(tray.1 + tray.3 <= boxr.1 + 1.0, "on top of it");
+            // Charles, 23 Nov: a strip of the transcript showed between the tray and the box.
+            assert!((tray.1 + tray.3 - boxr.1).abs() <= 1.0, "flush on the box, no gap: {tray:?} {boxr:?}");
             assert!(window.try_find(("pick-rail-fav", 0usize)).is_some(), "the star heads the rail");
             assert!(window.try_find(("route-model", 1usize)).is_none(), "the Qwen family is folded");
         })
