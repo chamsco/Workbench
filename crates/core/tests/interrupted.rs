@@ -227,6 +227,17 @@ fn a_restart_carries_a_cli_worker_on_in_its_own_session() {
         ws.join(".backspace/worktrees/add-resume/resumed.txt").is_file(),
         "the resumed worker wrote into its own worktree"
     );
+    // The landing left one receipt, finished: a second restart would not merge it again.
+    let db = rusqlite::Connection::open(ws.join(".backspace/receipts.db")).unwrap();
+    let merged: Vec<String> = db
+        .prepare("SELECT key FROM receipts WHERE kind = 'merge' AND result = 'merged'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert!(merged[0].starts_with("merge:backspace/add-resume@"), "{merged:?}");
     // The ticket went through the gate, so this was the ordinary path.
     let s = h.snapshot();
     let t = s.tickets.iter().find(|t| t.key == "add-resume").unwrap();

@@ -71,6 +71,9 @@ struct Inner {
     /// Held from snapshot to rename, so saves land in the order they were taken:
     /// without it a slower, older snapshot could overwrite a newer one.
     saving: Mutex<()>,
+    /// Side effects that must not repeat after a crash (receipts.rs). None if
+    /// the database can't be opened: the project then runs as before.
+    receipts: Option<crate::receipts::Receipts>,
     verdicts: Mutex<HashMap<usize, oneshot::Sender<Verdict>>>,
     /// Sets of visual options waiting on the user's pick, by set id.
     option_picks: Mutex<HashMap<String, oneshot::Sender<String>>>,
@@ -584,6 +587,7 @@ impl Harness {
             limiter: Semaphore::new(cfg.orchestrator.max_parallel_calls),
             state: Mutex::new(state),
             saving: Mutex::new(()),
+            receipts: crate::receipts::Receipts::open(&root.join(".backspace/receipts.db")).ok(),
             verdicts: Mutex::new(HashMap::new()),
             option_picks: Mutex::new(HashMap::new()),
             done: Mutex::new(HashMap::new()),
@@ -626,6 +630,13 @@ impl Harness {
                         }
                     }
                 });
+            }
+        }
+
+        // Commands a crash cut off: say so, the same way an interrupted agent is.
+        if let Some(r) = &inner.receipts {
+            for c in r.in_flight().unwrap_or_default() {
+                inner.log(MAIN, LogKind::System, format!("a `{}` was cut off by a restart: {}", c.kind, c.key));
             }
         }
 
@@ -3592,10 +3603,38 @@ async fn submit_as(inner: &Arc<Inner>, c: &Conversation, input: &Value, source: 
             "backspace: merge {}",
             c.ticket.as_deref().unwrap_or(&branch)
         );
-        if let git::Merge::Conflict(files) = git::merge(&into, &branch, &msg).await? {
-            return Ok(ToolOutcome::Text(format!(
-                "Accepted, but merging into `{parent_branch}` conflicts in:\n{files}\nIn your worktree run `git merge {parent_branch}`, resolve the conflicts, commit, and call submit_deliverable again."
-            )));
+        // The receipt names the branch's tip: a revised delivery has a new tip
+        // and merges again; the same tip, after a crash, does not merge twice.
+        let tip = git::head(&inner.home(c.id).0).await.unwrap_or_default();
+        let receipt = format!("merge:{branch}@{tip}->{parent_branch}");
+        let begun = match (&inner.receipts, tip.is_empty()) {
+            (Some(r), false) => r.begin(&receipt, "merge").ok(),
+            _ => None,
+        };
+        match begun {
+            Some(crate::receipts::Begin::Done(_)) => {
+                inner.log(c.id, LogKind::System, format!("`{branch}` at {tip} was already merged into `{parent_branch}` before a restart; not merged again"));
+            }
+            _ => {
+                if let Some(crate::receipts::Begin::CutOff { attempts }) = begun {
+                    inner.log(c.id, LogKind::System, format!("the merge into `{parent_branch}` was cut off by a restart (attempt {attempts}); git decides what is left to do"));
+                }
+                match git::merge(&into, &branch, &msg).await? {
+                    git::Merge::Conflict(files) => {
+                        if let Some(r) = &inner.receipts {
+                            let _ = r.abandon(&receipt);
+                        }
+                        return Ok(ToolOutcome::Text(format!(
+                            "Accepted, but merging into `{parent_branch}` conflicts in:\n{files}\nIn your worktree run `git merge {parent_branch}`, resolve the conflicts, commit, and call submit_deliverable again."
+                        )));
+                    }
+                    git::Merge::Merged => {
+                        if let Some(r) = &inner.receipts {
+                            let _ = r.done(&receipt, "merged");
+                        }
+                    }
+                }
+            }
         }
     }
 
