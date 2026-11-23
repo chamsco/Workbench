@@ -48,6 +48,7 @@ pub mod model_gateway;
 pub mod model_server;
 pub mod options;
 pub mod phase;
+pub mod receipts;
 pub mod planning;
 pub mod rampart;
 pub mod sandbox;
