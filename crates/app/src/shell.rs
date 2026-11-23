@@ -3134,7 +3134,9 @@ impl Render for Cauldron {
         }
         // The version button's update card, above the user row, over every pane.
         if let (true, Some(sp)) = (self.update_open, s.sidebar) {
-            root = root.child(div().absolute().left(px(sp.rect.x + 6.0)).bottom(px(h - (sp.rect.y + sp.rect.h) + 44.0)).child(self.update_card(pal, (sp.rect.w - 12.0).min(300.0), cx).test_support()));
+            // Beside the rail when the sidebar is only the rail, else inside the sidebar.
+            let (ux, uw) = if sp.rect.w < metric::SIDEBAR_MIN_W { (sp.rect.right() + metric::GAP, 300.0) } else { (sp.rect.x + 6.0, (sp.rect.w - 12.0).min(300.0)) };
+            root = root.child(div().absolute().left(px(ux)).bottom(px(h - (sp.rect.y + sp.rect.h) + 44.0)).child(self.update_card(pal, uw, cx).test_support()));
         }
         if let Some(t) = self.inbox_toast(pal, cx) {
             let vp = window.viewport_size();
