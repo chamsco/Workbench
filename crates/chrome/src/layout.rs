@@ -183,7 +183,9 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
     let (top, bottom, right) = (frame, h - frame, w - frame);
     let full_h = bottom - top;
 
-    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_width(side.w), full_h));
+    // A floating card, inset from the window's edge as the other cards are (Charles, 23 Nov); the
+    // stream card's left edge stays where it was.
+    let sidebar = state.sidebar_open.then(|| Rect::new(frame, top, sidebar_width(side.w) - frame, full_h));
     let left = sidebar.map_or(frame + side.push, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
         let sw = support_width(w);

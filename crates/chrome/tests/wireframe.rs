@@ -123,7 +123,7 @@ fn panes_never_overlap_and_stay_inside_the_window() {
 }
 
 /// Tight tiles: the cards stand 4px from the window's top, right and bottom edges and 4px from each
-/// other; the sidebar sits flat on the frame from the left edge, and with it folded the card takes
+/// other; the sidebar is a card inside the same margin (23 Nov), and with it folded the card takes
 /// the 4px margin on the left too. There is no top bar: every card starts 4px from the top.
 #[test]
 fn cards_are_tight_tiles_4px_apart() {
@@ -141,7 +141,7 @@ fn cards_are_tight_tiles_4px_apart() {
             assert_eq!(s.main.y, f, "{at}: the stream card starts at the frame");
             match s.sidebar {
                 Some(sb) => {
-                    assert_eq!((sb.x, sb.y, sb.w, sb.bottom()), (0.0, top, 236.0, h - f), "{at}: sidebar on the frame");
+                    assert_eq!((sb.x, sb.y, sb.right(), sb.bottom()), (f, top, 236.0, h - f), "{at}: sidebar a floating card inside the frame");
                     assert_eq!(s.main.x, sb.right() + 4.0, "{at}: card 4px from the sidebar");
                 }
                 None => assert_eq!(s.main.x, f, "{at}: the card takes the left margin"),
@@ -298,7 +298,7 @@ fn the_sidebar_drags_and_the_band_pushes_the_card() {
     use cauldron_chrome::layout::{sidebar_width, solve_at, Sidebar};
     let open = ShellState { sidebar_open: true, support_open: false, dock_open: false };
     let s = solve_at(1440.0, 900.0, open, Platform::Mac, Sidebar { w: 320.0, push: 0.0 });
-    assert_eq!(s.sidebar.unwrap().w, 320.0);
+    assert_eq!(s.sidebar.unwrap().right(), 320.0);
     assert_eq!(s.main.x, 320.0 + metric::GAP);
     assert_eq!(s.sidebar_button.right(), 320.0 - 12.0, "the button stays 12px in from the edge");
     assert_eq!(solve(1440.0, 900.0, open, Platform::Mac).sidebar_button.x, 196.0, "the default is where it was");
