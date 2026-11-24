@@ -145,8 +145,11 @@ pub struct Prefs {
     /// runner is up: the `model_server` id of a tiny model, e.g.
     /// "ollama:lfm2.5:latest". None: only the big agent's own model.
     pub subagent_model: Option<String>,
-    /// The Claude model every side stream runs on (Settings > Models > Side streams), e.g.
-    /// "haiku". None: one tier below its main stream's model (`chat::side_route`).
+    /// What every side stream runs on (Settings > Agents > Side streams), on any CLI. None: its
+    /// main's CLI one size down (`chat::side_route`).
+    pub side_route: Option<crate::chat::Route>,
+    /// The first version of `side_route`: a Claude Code model only. Read, never written.
+    #[serde(skip_serializing)]
     pub side_model: Option<String>,
     /// Which small delegated jobs that model runs, from "scouts", "triage"
     /// and "workers". Empty: scouts, the moment a model is chosen (they are
@@ -229,6 +232,7 @@ impl Default for Prefs {
             api_keys: BTreeMap::new(),
             appearance: Appearance::default(),
             subagent_model: None,
+            side_route: None,
             side_model: None,
             local_tasks: vec![],
             hands: Hands::default(),
@@ -662,6 +666,15 @@ impl Prefs {
         Some(PathBuf::from(home).join(".config/backspace/prefs.json"))
     }
 
+    /// The side streams' route picked in Settings, reading the older Claude-only pick too (a
+    /// `Prefs` built in code, not loaded, may still carry only that).
+    pub fn side_pick(&self) -> Option<crate::chat::Route> {
+        self.side_route.clone().or_else(|| {
+            let m = self.side_model.as_deref().map(str::trim).filter(|m| !m.is_empty())?;
+            Some(crate::chat::Route { kind: crate::chat::RouteKind::Cli, provider: "claude".into(), model: Some(m.to_string()) })
+        })
+    }
+
     pub fn load() -> Prefs {
         let mut p: Prefs = Self::path()
             .and_then(|p| std::fs::read_to_string(p).ok())
@@ -669,6 +682,10 @@ impl Prefs {
             .unwrap_or_default();
         if p.tabs.is_empty() {
             p.tabs = TabSpec::defaults();
+        }
+        // The Claude-only side model of the first version becomes a route, kept on the next save.
+        if p.side_route.is_none() {
+            p.side_route = p.side_pick();
         }
         p.active_tab = p.active_tab.min(p.tabs.len() - 1);
         // A project's layout must never be empty either: an entry with no tabs

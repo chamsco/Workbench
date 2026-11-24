@@ -780,17 +780,63 @@ pub fn one_tier_below(model: Option<&str>) -> &'static str {
     }
 }
 
-/// The route a side stream of a stream on `main` runs on: the model picked in Settings when there
-/// is one (a Claude model), else one tier below a Claude main. Other CLIs and local models keep
-/// the main's route, as their smaller models aren't known here.
-pub fn side_route(main: &Route, pick: Option<&str>) -> Route {
-    if let Some(m) = pick.map(str::trim).filter(|m| !m.is_empty()) {
-        return Route { kind: RouteKind::Cli, provider: "claude".into(), model: Some(m.to_string()) };
+/// The route a side stream of a stream on `main` runs on (Charles, 24 Nov: model agnostic): the
+/// route picked in Settings when there is one, on any CLI; else the main's CLI one size down
+/// ([`smaller_model`]), or the main's own route when no smaller model is known for it.
+/// `catalog` is what the main's CLI lists about its models (`harnesses::known_models`).
+pub fn side_route(main: &Route, pick: Option<&Route>, catalog: &[crate::harnesses::ModelInfo]) -> Route {
+    if let Some(p) = pick {
+        return p.clone();
     }
+    let mut r = main.clone();
+    if let Some(m) = smaller_model(main, catalog) {
+        r.model = Some(m);
+    }
+    r
+}
+
+/// One size down from `main`'s model on the same CLI, or None when nothing smaller is known:
+/// - Claude Code: its aliases, fable > opus > sonnet > haiku.
+/// - A CLI that lists prices (OpenCode): the dearest model of the same maker that costs less.
+/// - Otherwise the maker's own naming: Gemini pro > flash > flash-lite, Codex codex(-max) >
+///   codex-mini. An id that fits none of these keeps the main's model.
+pub fn smaller_model(main: &Route, catalog: &[crate::harnesses::ModelInfo]) -> Option<String> {
     if main.kind == RouteKind::Cli && main.provider == "claude" {
-        return Route { kind: RouteKind::Cli, provider: "claude".into(), model: Some(one_tier_below(main.model.as_deref()).into()) };
+        return Some(one_tier_below(main.model.as_deref()).into());
     }
-    main.clone()
+    let m = main.model.as_deref().map(str::trim).filter(|m| !m.is_empty())?;
+    if let Some(c) = cheaper_in_catalog(m, catalog) {
+        return Some(c);
+    }
+    let (dir, name) = match m.rsplit_once('/') {
+        Some((d, n)) => (format!("{d}/"), n),
+        None => (String::new(), m),
+    };
+    let low = name.to_ascii_lowercase();
+    let smaller = if low.starts_with("gemini") && low.contains("-pro") {
+        Some(name.replacen("-pro", "-flash", 1))
+    } else if low.starts_with("gemini") && low.contains("-flash") && !low.contains("lite") {
+        Some(name.replacen("-flash", "-flash-lite", 1))
+    } else if low.contains("codex") && !low.contains("mini") {
+        Some(format!("{}-mini", name.trim_end_matches("-max")))
+    } else {
+        None
+    };
+    smaller.map(|n| format!("{dir}{n}"))
+}
+
+/// The dearest model in `catalog` from the same maker as `model` (its "maker/" prefix, else its
+/// family) that costs less per input token than `model`.
+fn cheaper_in_catalog(model: &str, catalog: &[crate::harnesses::ModelInfo]) -> Option<String> {
+    let me = catalog.iter().find(|i| i.id == model)?;
+    let price = me.input?;
+    let maker = |i: &crate::harnesses::ModelInfo| i.id.rsplit_once('/').map(|(d, _)| d.to_string()).or_else(|| i.family.clone());
+    let mine = maker(me)?;
+    catalog
+        .iter()
+        .filter(|i| maker(i).as_deref() == Some(mine.as_str()) && i.input.is_some_and(|p| p < price))
+        .max_by(|a, b| a.input.partial_cmp(&b.input).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|i| i.id.clone())
 }
 
 const SESSION_NAMER: &str = "You name conversations for a list. Reply with only a title of two to six words in sentence case, saying what the conversation was about, with no quotes and no full stop.";
@@ -1370,7 +1416,9 @@ impl Chats {
             title = "Side stream".into();
         }
         let now = now_ms();
-        let mut t = self.create_in(from.route.clone(), Scope { project: from.project.clone(), title: Some(title), ..Scope::default() });
+        // The side model, like a side stream the main starts itself (Charles, 24 Nov).
+        let route = side_route(&main.route, crate::prefs::Prefs::load().side_pick().as_ref(), &crate::harnesses::known_models(&main.route.provider));
+        let mut t = self.create_in(route, Scope { project: from.project.clone(), title: Some(title), ..Scope::default() });
         t.side_of = Some(main.id.clone());
         t.folder = main.folder.clone();
         t.messages = messages;
@@ -1737,7 +1785,7 @@ impl Chats {
         }
         let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Side thread").chars().take(60).collect());
         // The app picks the model, never the main stream (`sp.provider`/`sp.model` are ignored).
-        let route = side_route(&parent.route, ctx.prefs.side_model.as_deref());
+        let route = side_route(&parent.route, ctx.prefs.side_pick().as_ref(), &crate::harnesses::known_models(&parent.route.provider));
         // A side thread of the stream that asked (Charles, 22 Nov: a stream is a coordinator, its
         // side threads are the normal threads it spawns), filed beside it and starting with the
         // context it chose.
@@ -3715,11 +3763,31 @@ mod tests {
             (Some("haiku"), "haiku"),
             (None, "sonnet"),
         ] {
-            assert_eq!(side_route(&claude(main), None), claude(Some(side)), "main {main:?}");
+            assert_eq!(side_route(&claude(main), None, &[]), claude(Some(side)), "main {main:?}");
         }
-        assert_eq!(side_route(&claude(Some("opus")), Some("haiku")), claude(Some("haiku")), "the Settings pick wins");
-        let codex = Route { kind: RouteKind::Cli, provider: "codex".into(), model: Some("gpt-5".into()) };
-        assert_eq!(side_route(&codex, Some("sonnet")), claude(Some("sonnet")), "the Settings pick wins on any main");
+        let codex = |m: &str| Route { kind: RouteKind::Cli, provider: "codex".into(), model: Some(m.into()) };
+        assert_eq!(side_route(&claude(Some("opus")), Some(&codex("gpt-5.1-codex-mini")), &[]), codex("gpt-5.1-codex-mini"), "the Settings pick wins, on any CLI");
+    }
+
+    /// Charles, 24 Nov: "model agnostic": Auto goes one size down on every CLI it can.
+    #[test]
+    fn auto_goes_one_size_down_on_any_cli() {
+        let on = |p: &str, m: &str| Route { kind: RouteKind::Cli, provider: p.into(), model: Some(m.into()) };
+        let down = |p: &str, m: &str| smaller_model(&on(p, m), &[]);
+        assert_eq!(down("codex", "gpt-5.1-codex-max").as_deref(), Some("gpt-5.1-codex-mini"));
+        assert_eq!(down("codex", "gpt-5.1-codex").as_deref(), Some("gpt-5.1-codex-mini"));
+        assert_eq!(down("gemini", "gemini-2.5-pro").as_deref(), Some("gemini-2.5-flash"));
+        assert_eq!(down("gemini", "gemini-2.5-flash").as_deref(), Some("gemini-2.5-flash-lite"));
+        assert_eq!(down("opencode", "google/gemini-2.5-pro").as_deref(), Some("google/gemini-2.5-flash"), "the maker prefix stays");
+        assert_eq!(down("codex", "gpt-5.1-codex-mini"), None, "already the small one");
+        assert_eq!(down("grok", "grok-4"), None, "unknown naming: the main's model is kept");
+        assert_eq!(side_route(&on("grok", "grok-4"), None, &[]), on("grok", "grok-4"));
+
+        // A CLI that lists prices: the dearest cheaper model of the same maker, never another maker's.
+        let m = |id: &str, input: f64| crate::harnesses::ModelInfo { id: id.into(), input: Some(input), ..Default::default() };
+        let cat = [m("anthropic/big", 15.), m("anthropic/mid", 3.), m("anthropic/small", 1.), m("openai/cheap", 2.)];
+        assert_eq!(smaller_model(&on("opencode", "anthropic/big"), &cat).as_deref(), Some("anthropic/mid"));
+        assert_eq!(smaller_model(&on("opencode", "anthropic/small"), &cat), None, "nothing cheaper from that maker");
     }
 
     /// Charles, 24 Nov: a side stream reports back but never starts streams of its own.

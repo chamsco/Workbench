@@ -33,6 +33,8 @@ pub(crate) const TRAY_OPEN_H: f32 = 216.0;
 pub(crate) enum PickFor {
     New,
     Thread(String),
+    /// Settings > Agents > Side streams: what every side stream runs on.
+    Side,
 }
 
 /// Models offered under a CLI, besides its own default. Only names the CLI itself documents as
@@ -117,6 +119,12 @@ impl Cauldron {
                 p.default_route = Some(route.clone());
                 p.save();
                 self.start.route = Some(route);
+            }
+            PickFor::Side => {
+                let mut p = Prefs::load();
+                p.side_route = Some(route);
+                p.side_model = None;
+                p.save();
             }
             PickFor::Thread(id) => {
                 if let Some((_, chats)) = self.core.as_ref() {
