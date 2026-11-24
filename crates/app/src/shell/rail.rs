@@ -99,34 +99,51 @@ impl Cauldron {
             }
             _ => {}
         }
-        // The update, as a circle: warm with an arrow while something is newer, quiet otherwise. It does
-        // what the version button does: opens the card and checks (there is no automatic check).
+        // The update, as a circle (Charles, 23 Nov): a ring that fills while the app downloads, green
+        // with a check once it is "Update ready" (one click restarts into it), a warm arrow while
+        // something is newer, and a quiet dot otherwise. It opens the card and checks, as the version
+        // button does; there is no automatic check.
         let newer = self.updates_pending() > 0;
+        let (ring, label): (Option<(f32, Rgb)>, &str) = match &self.update {
+            update::UpdateState::Downloading(_, d) => (Some((d.fraction(), pal.accent)), "Downloading the update"),
+            update::UpdateState::Staged(_) => (Some((1.0, pal.ok)), "Update ready, restart to finish"),
+            _ if newer => (None, "Updates available"),
+            _ => (None, "Check for updates"),
+        };
         let tone = if newer { c(pal.warn) } else { fg3 };
+        let inner: AnyElement = match &self.update {
+            update::UpdateState::Staged(_) => glyph("check", 13., c(pal.ok)).into_any_element(),
+            update::UpdateState::Downloading(..) => glyph("chevron-down", 13., c(pal.accent)).into_any_element(),
+            _ if newer => glyph("arrow-up", 13., tone).into_any_element(),
+            _ => div().size(px(6.)).rounded_full().bg(c(pal.accent)).into_any_element(),
+        };
         let b = div()
             .id("rail-update")
+            .relative()
             .size(px(28.))
             .flex()
             .items_center()
             .justify_center()
             .rounded_full()
             .border_1()
-            .border_color(if newer { tone } else { c(pal.line) })
+            .border_color(if ring.is_some() { gpui_kit::transparent_black() } else if newer { tone } else { c(pal.line) })
             .cursor_pointer()
             .hover(|d| d.bg(c(pal.hover)))
             .when(self.update_open, |d| d.bg(c(pal.selected)))
-            .aria_label(if newer { "Updates available" } else { "Check for updates" })
-            .child(if newer { glyph("arrow-up", 13., tone).into_any_element() } else { div().size(px(6.)).rounded_full().bg(c(pal.accent)).into_any_element() })
+            .aria_label(label)
+            .when_some(ring, |d, (p, col)| d.child(div().absolute().top(px(-1.)).left(px(-1.)).size(px(28.)).child(img(ring_image((p * 100.0).round() / 100.0, &col.to_hex(), &pal.fg3.to_hex())).size(px(28.)))))
+            .child(inner)
             .on_click(cx.listener(|this, _, _, cx| {
                 cx.stop_propagation();
-                if this.update_open {
+                if matches!(this.update, update::UpdateState::Staged(_)) {
+                    this.update_app(cx);
+                } else if this.update_open {
                     this.update_open = false;
                     cx.notify();
                 } else {
                     this.check_for_update(cx);
                 }
             }));
-        let label = if newer { "Updates available" } else { "Check for updates" };
         host = host.child(at(update_y, self.tipped("rail-update", b, label, Side::Right, pal, cx).test_support().into_any_element()));
         host = host.child(at(hh - 70.0, self.tipped("indent-settings", icon_button("indent-settings", "settings", "Settings", pal, false), "Settings", Side::Right, pal, cx).on_click(cx.listener(|this, _, _, cx| {
             this.settings = Some(0);
@@ -152,4 +169,15 @@ impl Cauldron {
                 .child(initial),
         )
     }
+}
+
+/// A 28px ring, `p` (0 to 1) of it drawn in `col` over a faint track; the rail's update circle.
+fn ring_image(p: f32, col: &str, track: &str) -> Arc<Image> {
+    let circ = 2.0 * std::f32::consts::PI * 12.5;
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="none" stroke="{track}" stroke-opacity="0.35" stroke-width="1.5"/><circle cx="14" cy="14" r="12.5" fill="none" stroke="{col}" stroke-width="2" stroke-linecap="round" stroke-dasharray="{:.2} {:.2}" transform="rotate(-90 14 14)"/></svg>"#,
+        circ * p,
+        circ
+    );
+    Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
 }

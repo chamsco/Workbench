@@ -7,6 +7,26 @@
 use super::*;
 use backspace_core::cli_update as upd_cli;
 use backspace_core::update::{self as upd, UpdateInfo};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// How far the app's download has got: bytes so far and in all (0 until the size is known).
+#[derive(Debug, Default)]
+pub(crate) struct Dl {
+    pub got: AtomicU64,
+    pub total: AtomicU64,
+}
+
+impl Dl {
+    /// 0.0 to 1.0; 0 while the size is unknown.
+    pub(crate) fn fraction(&self) -> f32 {
+        let t = self.total.load(Ordering::Relaxed);
+        if t == 0 {
+            0.0
+        } else {
+            (self.got.load(Ordering::Relaxed) as f32 / t as f32).clamp(0.0, 1.0)
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub(crate) enum UpdateState {
@@ -15,6 +35,11 @@ pub(crate) enum UpdateState {
     Checking,
     Ready(UpdateInfo),
     Failed(String),
+    /// The app's update is downloading in the background; nothing is replaced yet.
+    Downloading(UpdateInfo, std::sync::Arc<Dl>),
+    /// Downloaded and waiting: "Update ready", one click to restart into it.
+    Staged(UpdateInfo),
+    /// Swapping it in and restarting.
     Installing,
 }
 
@@ -54,8 +79,19 @@ impl UpdateState {
             UpdateState::Ready(i) if i.build.is_empty() => ("This build can't update itself".into(), "It was built by hand, so it has no release to compare with.".into()),
             UpdateState::Ready(i) => ("You're up to date".into(), format!("Cauldron {} ({}) is the newest build.", upd::VERSION, i.build)),
             UpdateState::Failed(e) => ("Couldn't check for updates".into(), e.clone()),
-            UpdateState::Installing => ("Downloading the update…".into(), "Cauldron restarts by itself when it is in place.".into()),
+            UpdateState::Downloading(_, d) => {
+                let mb = |b: u64| format!("{:.1} MB", b as f64 / 1_048_576.0);
+                let (got, total) = (d.got.load(Ordering::Relaxed), d.total.load(Ordering::Relaxed));
+                ("Downloading the update…".into(), if total > 0 { format!("{} of {}. You can keep working.", mb(got), mb(total)) } else { "Starting. You can keep working.".into() })
+            }
+            UpdateState::Staged(_) => ("Update ready".into(), "Restart Cauldron to finish it. Nothing changes until you do.".into()),
+            UpdateState::Installing => ("Updating Cauldron…".into(), "It restarts by itself when it is in place.".into()),
         }
+    }
+
+    /// A newer app is out, being downloaded, or downloaded and waiting.
+    pub(crate) fn app_newer(&self) -> bool {
+        matches!(self, UpdateState::Ready(i) if i.newer) || matches!(self, UpdateState::Downloading(..) | UpdateState::Staged(_))
     }
 }
 
@@ -63,7 +99,7 @@ impl Cauldron {
     /// Opens the card and checks, unless a check or an install is already running.
     pub(super) fn check_for_update(&mut self, cx: &mut Context<Self>) {
         self.update_open = true;
-        if matches!(self.update, UpdateState::Checking | UpdateState::Installing) {
+        if matches!(self.update, UpdateState::Checking | UpdateState::Installing | UpdateState::Downloading(..) | UpdateState::Staged(_)) {
             cx.notify();
             return;
         }
@@ -135,16 +171,31 @@ impl Cauldron {
 
     /// How many things "Update all" would update: each CLI with a newer version, and the app.
     pub(super) fn updates_pending(&self) -> usize {
-        let app = matches!(&self.update, UpdateState::Ready(i) if i.newer) as usize;
+        let app = self.update.app_newer() as usize;
         app + self.cli_rows.iter().filter(|r| matches!(r.state, RowState::Newer(_))).count()
     }
 
-    /// Updates every CLI that has a newer version, side by side; the app goes last, once they are
-    /// all in place, because it restarts.
+    /// Updates every CLI that has a newer version, side by side, and starts the app's download once
+    /// they are all in place (the app never restarts by itself: it waits as "Update ready").
     pub(super) fn update_all(&mut self, cx: &mut Context<Self>) {
+        self.run_cli_updates(None, true, cx);
+    }
+
+    /// Only the CLIs, the app untouched.
+    pub(super) fn update_clis(&mut self, cx: &mut Context<Self>) {
+        self.run_cli_updates(None, false, cx);
+    }
+
+    /// Only this CLI.
+    pub(super) fn update_cli(&mut self, provider: &str, cx: &mut Context<Self>) {
+        self.run_cli_updates(Some(provider.to_string()), false, cx);
+    }
+
+    fn run_cli_updates(&mut self, only: Option<String>, then_app: bool, cx: &mut Context<Self>) {
         let todo: Vec<(String, String, String)> = self
             .cli_rows
             .iter()
+            .filter(|r| only.as_ref().is_none_or(|o| o == &r.provider))
             .filter_map(|r| match (&r.state, &r.pkg) {
                 (RowState::Newer(l), Some(p)) => Some((r.provider.clone(), p.clone(), l.clone())),
                 _ => None,
@@ -157,7 +208,7 @@ impl Cauldron {
         }
         cx.notify();
         if todo.is_empty() {
-            self.finish_updates(cx);
+            self.finish_updates(then_app, cx);
             return;
         }
         if cfg!(test) {
@@ -177,7 +228,7 @@ impl Cauldron {
                             Err(e) => r.state = RowState::Failed(e.to_string()),
                         }
                     }
-                    this.finish_updates(cx);
+                    this.finish_updates(then_app, cx);
                     cx.notify();
                 });
             })
@@ -185,52 +236,243 @@ impl Cauldron {
         }
     }
 
-    /// When no CLI is still updating, the app's own update follows (it restarts).
-    fn finish_updates(&mut self, cx: &mut Context<Self>) {
+    /// When no CLI is still updating and "Update all" asked for it, the app's download starts.
+    fn finish_updates(&mut self, then_app: bool, cx: &mut Context<Self>) {
         if self.cli_rows.iter().any(|r| r.state == RowState::Updating) {
             return;
         }
-        if matches!(&self.update, UpdateState::Ready(i) if i.newer) {
-            self.install_update(cx);
+        if then_app {
+            self.update_app(cx);
         }
     }
 
-    /// Windows: download, swap, start the new exe, quit. Elsewhere: the release page.
-    fn install_update(&mut self, cx: &mut Context<Self>) {
+    /// The app only: downloads it in the background (Windows), or opens the release page; when it is
+    /// already downloaded, restarts into it.
+    pub(super) fn update_app(&mut self, cx: &mut Context<Self>) {
+        match &self.update {
+            UpdateState::Staged(_) => self.restart_into_update(cx),
+            UpdateState::Ready(i) if i.newer => {
+                if !i.installs {
+                    cx.open_url(&i.url);
+                } else {
+                    self.start_download(cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Downloads the new exe beside the running one while the app keeps working; the rail's circle
+    /// fills as it goes, and "Update ready" follows (Charles, 23 Nov).
+    fn start_download(&mut self, cx: &mut Context<Self>) {
         let UpdateState::Ready(info) = &self.update else { return };
-        if !info.installs {
-            cx.open_url(&info.url);
+        let info = info.clone();
+        let dl = std::sync::Arc::new(Dl::default());
+        self.update = UpdateState::Downloading(info.clone(), dl.clone());
+        cx.notify();
+        if cfg!(test) {
             return;
         }
-        self.update = UpdateState::Installing;
-        cx.notify();
-        let task = cx.background_executor().spawn(async { upd::install_exe() });
+        // Debug builds only, for screenshots: a made-up download that fills over twelve seconds.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("CAULDRON_FIXTURE_DOWNLOAD").is_some() {
+            cx.spawn(async move |this, cx| {
+                dl.total.store(80 * 1_048_576, Ordering::Relaxed);
+                for i in 1..=100u64 {
+                    cx.background_executor().timer(std::time::Duration::from_millis(120)).await;
+                    dl.got.store(i * 80 * 1_048_576 / 100, Ordering::Relaxed);
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        return;
+                    }
+                }
+                let _ = this.update(cx, |this, cx| {
+                    this.update = UpdateState::Staged(info);
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
+        let d2 = dl.clone();
+        let task = cx.background_executor().spawn(async move {
+            upd::download_exe(&move |got, total| {
+                d2.got.store(got, Ordering::Relaxed);
+                d2.total.store(total, Ordering::Relaxed);
+            })
+        });
         cx.spawn(async move |this, cx| {
             let res = task.await;
-            let _ = this.update(cx, |this, cx| match res {
-                Ok(exe) => match backspace_runner::cmd(&exe).env(backspace_core::instance::RESTART_ENV, "1").spawn() {
-                    Ok(_) => cx.quit(),
-                    Err(e) => {
-                        this.update = UpdateState::Failed(format!("The update is in place, but it didn't start: {e}. Open Cauldron again."));
-                        cx.notify();
-                    }
-                },
-                Err(e) => {
-                    this.update = UpdateState::Failed(format!("{e:#}"));
-                    cx.notify();
-                }
+            let _ = this.update(cx, |this, cx| {
+                this.update = match res {
+                    Ok(_) => UpdateState::Staged(info),
+                    Err(e) => UpdateState::Failed(format!("{e:#}")),
+                };
+                cx.notify();
             });
         })
         .detach();
+        // Redraw while it downloads, so the ring and the card follow it.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(150)).await;
+            match this.update(cx, |this, cx| {
+                let on = matches!(this.update, UpdateState::Downloading(..));
+                if on {
+                    cx.notify();
+                }
+                on
+            }) {
+                Ok(true) => {}
+                _ => break,
+            }
+        })
+        .detach();
+    }
+
+    /// Swaps the downloaded exe in and starts it. A window-wide card with a green bar covers the
+    /// short wait (Charles, 23 Nov: "a green loading bar that fills up").
+    pub(super) fn restart_into_update(&mut self, cx: &mut Context<Self>) {
+        let UpdateState::Staged(_) = &self.update else { return };
+        self.update = UpdateState::Installing;
+        self.update_open = false;
+        self.restart = Some((std::time::Instant::now(), None));
+        cx.notify();
+        if cfg!(test) {
+            return;
+        }
+        // Debug builds only, for screenshots: the bar fills, then the app stays as it is.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("CAULDRON_FIXTURE_DOWNLOAD").is_some() {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(std::time::Duration::from_millis(2500)).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.restart = None;
+                    this.update = UpdateState::Idle;
+                    cx.notify();
+                });
+            })
+            .detach();
+            self.tick_restart(cx);
+            return;
+        }
+        let task = cx.background_executor().spawn(async { upd::apply_download() });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            match res {
+                Ok(exe) => {
+                    let _ = this.update(cx, |this, cx| {
+                        if let Some((t0, _)) = this.restart {
+                            this.restart = Some((t0, Some(std::time::Instant::now())));
+                        }
+                        cx.notify();
+                    });
+                    // Let the bar reach the end before the app goes.
+                    cx.background_executor().timer(std::time::Duration::from_millis(450)).await;
+                    let _ = this.update(cx, |this, cx| match backspace_runner::cmd(&exe).env(backspace_core::instance::RESTART_ENV, "1").spawn() {
+                        Ok(_) => cx.quit(),
+                        Err(e) => {
+                            this.restart = None;
+                            this.update = UpdateState::Failed(format!("The update is in place, but it didn't start: {e}. Open Cauldron again."));
+                            cx.notify();
+                        }
+                    });
+                }
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.restart = None;
+                        this.update = UpdateState::Failed(format!("{e:#}"));
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+        self.tick_restart(cx);
+    }
+
+    /// Redraws the restart card about thirty times a second while it is up.
+    fn tick_restart(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(33)).await;
+            match this.update(cx, |this, cx| {
+                let on = this.restart.is_some();
+                if on {
+                    cx.notify();
+                }
+                on
+            }) {
+                Ok(true) => {}
+                _ => break,
+            }
+        })
+        .detach();
+    }
+
+    /// The restart card: a green bar that fills over the swap. It creeps toward 90% while the swap
+    /// runs and finishes the moment it is in place.
+    pub(super) fn restart_el(&self, pal: &'static Palette) -> Option<AnyElement> {
+        let (t0, applied) = self.restart?;
+        let now = std::time::Instant::now();
+        let creep = |secs: f32| 0.9 * (1.0 - (-secs / 0.8).exp());
+        let p = match applied {
+            Some(a) => {
+                let base = creep(a.duration_since(t0).as_secs_f32());
+                base + (1.0 - base) * (now.duration_since(a).as_secs_f32() / 0.3).min(1.0)
+            }
+            None => creep(now.duration_since(t0).as_secs_f32()),
+        };
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        Some(
+            div()
+                .id("restart-scrim")
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(c(pal.bg).opacity(0.94))
+                .occlude()
+                .child(
+                    div()
+                        .id("restart-card")
+                        .w(px(300.))
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(px(14.))
+                        .p(px(24.))
+                        .rounded(px(radius::PANEL))
+                        .bg(c(pal.raised))
+                        .border_1()
+                        .border_color(c(pal.line_strong))
+                        .shadow(vec![drop(tokens::shadow::MENU)])
+                        .aria_label("Updating Cauldron")
+                        .child(div().size(px(34.)).rounded_full().bg(c(pal.accent)))
+                        .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child("Updating Cauldron"))
+                        .child(
+                            div()
+                                .id("restart-bar")
+                                .w_full()
+                                .h(px(6.))
+                                .rounded_full()
+                                .bg(c(pal.inset))
+                                .overflow_hidden()
+                                .child(div().h_full().w(relative(p.clamp(0.0, 1.0))).rounded_full().bg(c(pal.ok)))
+                                .test_support(),
+                        )
+                        .child(div().text_size(px(11.5)).text_color(fg3).child("It restarts by itself when it is in place."))
+                        .test_support(),
+                )
+                .into_any_element(),
+        )
     }
 
     /// One line per thing that can update: the app, then each coding CLI with its mark, its
     /// version and where it stands.
     #[inline(never)]
-    fn update_rows(&self, pal: &'static Palette) -> AnyElement {
+    fn update_rows(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
         let mut list = div().id("update-rows").flex().flex_col().mt(px(4.)).mb(px(2.));
-        let row = |id: ElementId, mark: AnyElement, name: String, status: String, tone: Hsla| {
+        let row = |id: ElementId, mark: AnyElement, name: String, status: String, tone: Hsla, action: Option<AnyElement>| {
             div()
                 .id(id)
                 .h(px(28.))
@@ -240,17 +482,46 @@ impl Cauldron {
                 .child(div().w(px(16.)).flex_none().flex().justify_center().child(mark))
                 .child(div().flex_none().text_size(px(12.5)).text_color(fg).child(name.clone()))
                 .child(div().flex_1().min_w_0().truncate().text_align(TextAlign::Right).text_size(px(11.5)).text_color(tone).child(status.clone()))
+                .children(action)
                 .aria_label(format!("{name}, {status}"))
         };
+        // A row's own button: just this one updates.
+        let small = |id: ElementId, label: &'static str, hint: String| {
+            div()
+                .id(id)
+                .h(px(20.))
+                .px(px(7.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .whitespace_nowrap()
+                .rounded(px(radius::TAG))
+                .border_1()
+                .border_color(c(pal.line_strong))
+                .text_size(px(11.))
+                .text_color(fg)
+                .cursor_pointer()
+                .hover(|d| d.bg(c(pal.hover)))
+                .aria_label(hint)
+                .child(label)
+        };
+        let busy = matches!(self.update, UpdateState::Installing);
         let (app_status, app_tone) = match &self.update {
             UpdateState::Ready(i) if i.newer => (format!("{} → {}", upd::VERSION, i.latest), c(pal.warn)),
+            UpdateState::Downloading(_, d) => (format!("Downloading {}%", (d.fraction() * 100.0).round()), c(pal.accent)),
+            UpdateState::Staged(_) => ("Ready to restart".to_string(), c(pal.ok)),
             UpdateState::Ready(i) if i.build.is_empty() => ("Built by hand".to_string(), fg3),
             UpdateState::Ready(_) => (format!("{} · up to date", upd::VERSION), fg3),
             UpdateState::Failed(_) => ("Couldn't check".to_string(), c(pal.bad)),
             UpdateState::Installing => ("Updating…".to_string(), c(pal.accent)),
             _ => ("Checking…".to_string(), fg3),
         };
-        list = list.child(row(ElementId::Name("update-row-app".into()), div().size(px(11.)).rounded_full().bg(c(pal.accent)).into_any_element(), "Cauldron".into(), app_status, app_tone).test_support());
+        let app_action = match &self.update {
+            UpdateState::Ready(i) if i.newer && !busy => Some(small(ElementId::Name("update-app-row".into()), if i.installs { "Download" } else { "Open" }, "Update only the app".into()).on_click(cx.listener(|this, _, _, cx| this.update_app(cx))).test_support().into_any_element()),
+            UpdateState::Staged(_) => Some(small(ElementId::Name("update-app-row".into()), "Restart", "Restart to update".into()).on_click(cx.listener(|this, _, _, cx| this.update_app(cx))).test_support().into_any_element()),
+            _ => None,
+        };
+        list = list.child(row(ElementId::Name("update-row-app".into()), div().size(px(11.)).rounded_full().bg(c(pal.accent)).into_any_element(), "Cauldron".into(), app_status, app_tone, app_action).test_support());
         for (i, r) in self.cli_rows.iter().enumerate() {
             let have = r.version.clone().unwrap_or_default();
             let (status, tone) = match &r.state {
@@ -267,7 +538,11 @@ impl Cauldron {
                 Some(im) => img(im).size(px(14.)).into_any_element(),
                 None => div().size(px(7.)).rounded_full().bg(fg2).into_any_element(),
             };
-            list = list.child(row(ElementId::NamedInteger("update-row".into(), i as u64), mark, r.name.clone(), status, tone).test_support());
+            let action = matches!(r.state, RowState::Newer(_)).then(|| {
+                let provider = r.provider.clone();
+                small(ElementId::NamedInteger("update-cli".into(), i as u64), "Update", format!("Update only {}", r.name)).on_click(cx.listener(move |this, _, _, cx| this.update_cli(&provider, cx))).test_support().into_any_element()
+            });
+            list = list.child(row(ElementId::NamedInteger("update-row".into(), i as u64), mark, r.name.clone(), status, tone, action).test_support());
         }
         list.into_any_element()
     }
@@ -296,49 +571,59 @@ impl Cauldron {
         };
         // Buttons wrap onto a second line rather than spill out of the card (Charles, 23 Nov).
         let mut actions = div().flex().flex_wrap().items_center().gap(px(6.)).pt(px(4.));
-        let pending = self.updates_pending();
         let busy = matches!(self.update, UpdateState::Installing) || self.cli_rows.iter().any(|r| r.state == RowState::Updating);
-        if pending > 0 && !busy {
-            let app_only = self.cli_rows.iter().all(|r| !matches!(r.state, RowState::Newer(_)));
-            let label: String = match &self.update {
-                UpdateState::Ready(i) if app_only => if i.installs { "Update and restart".into() } else { "Download".into() },
-                _ => format!("Update {pending}"),
-            };
-            // The marks of what is about to update, so the button says which ones.
-            let mut marks = div().flex().items_center().gap(px(-3.));
-            for r in self.cli_rows.iter().filter(|r| matches!(r.state, RowState::Newer(_))) {
+        let app_ready = matches!(&self.update, UpdateState::Ready(i) if i.newer);
+        let installs = matches!(&self.update, UpdateState::Ready(i) if i.installs);
+        let staged = matches!(self.update, UpdateState::Staged(_));
+        let newer_clis: Vec<&CliRow> = self.cli_rows.iter().filter(|r| matches!(r.state, RowState::Newer(_))).collect();
+        // The marks of the CLIs about to update, so the button says which ones.
+        let marks = || {
+            let mut m = div().flex().items_center().gap(px(-3.));
+            for r in &newer_clis {
                 if let Some(im) = super::logos::cli_mark(&r.provider).and_then(|n| super::logos::image(n, &pal.on_accent.to_hex())) {
-                    marks = marks.child(img(im).size(px(13.)));
+                    m = m.child(img(im).size(px(13.)));
                 }
             }
-            actions = actions.child(
-                div()
-                    .id("update-install")
-                    .h(px(28.))
-                    .px(px(10.))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .whitespace_nowrap()
-                    .gap(px(7.))
-                    .rounded(px(radius::CONTROL))
-                    .cursor_pointer()
-                    .text_size(px(12.))
-                    .shadow(super::lift(super::Lift::Button, pal))
-                    .bg(c(pal.accent))
-                    .text_color(c(pal.on_accent))
-                    .aria_label(label.clone())
-                    .child(marks)
-                    .child(label)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if this.cli_rows.iter().any(|r| matches!(r.state, RowState::Newer(_))) {
-                            this.update_all(cx);
-                        } else {
-                            this.install_update(cx);
-                        }
-                    }))
-                    .test_support(),
-            );
+            m
+        };
+        let big = |id: &'static str, label: String, marks: Option<Div>| {
+            div()
+                .id(id)
+                .h(px(28.))
+                .px(px(10.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .whitespace_nowrap()
+                .gap(px(7.))
+                .rounded(px(radius::CONTROL))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .shadow(super::lift(super::Lift::Button, pal))
+                .bg(c(pal.accent))
+                .text_color(c(pal.on_accent))
+                .aria_label(label.clone())
+                .children(marks)
+                .child(label)
+        };
+        // The app and the CLIs update together or each on its own (Charles, 23 Nov). The app downloads
+        // first and waits as "Update ready"; only the Restart button restarts it.
+        if !busy {
+            if staged {
+                actions = actions.child(big("update-restart", "Restart to update".into(), None).on_click(cx.listener(|this, _, _, cx| this.update_app(cx))).test_support());
+            }
+            let app_label = if installs { "Download update" } else { "Open release page" };
+            if app_ready && !newer_clis.is_empty() {
+                actions = actions
+                    .child(big("update-install", "Update all".into(), Some(marks())).on_click(cx.listener(|this, _, _, cx| this.update_all(cx))).test_support())
+                    .child(button("update-app", "Only the app", false).on_click(cx.listener(|this, _, _, cx| this.update_app(cx))).test_support())
+                    .child(button("update-clis", "Only the CLIs", false).on_click(cx.listener(|this, _, _, cx| this.update_clis(cx))).test_support());
+            } else if app_ready {
+                actions = actions.child(big("update-install", app_label.into(), None).on_click(cx.listener(|this, _, _, cx| this.update_app(cx))).test_support());
+            } else if !newer_clis.is_empty() {
+                let label = if newer_clis.len() == 1 { format!("Update {}", newer_clis[0].name) } else { "Update CLIs".to_string() };
+                actions = actions.child(big("update-install", label, Some(marks())).on_click(cx.listener(|this, _, _, cx| this.update_clis(cx))).test_support());
+            }
         }
         if let UpdateState::Ready(i) = &self.update {
             if i.newer && !i.changes_url.is_empty() {
@@ -376,7 +661,7 @@ impl Cauldron {
             }))
             .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(head))
             .child(div().text_size(px(11.5)).line_height(px(16.)).text_color(fg2).child(sub))
-            .child(self.update_rows(pal))
+            .child(self.update_rows(pal, cx))
             .child(changes)
             .child(actions)
     }
