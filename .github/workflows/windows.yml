@@ -60,7 +60,14 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          command -v makensis >/dev/null || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+          # Chocolatey's feed times out now and then (504/503): try a few times before giving up.
+          if ! command -v makensis >/dev/null && [ ! -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+            for i in 1 2 3 4 5; do
+              choco install nsis -y --no-progress && break
+              [ "$i" = 5 ] && { echo "NSIS could not be installed after $i tries" >&2; exit 1; }
+              sleep $((i * 30))
+            done
+          fi
           mk="$(command -v makensis || echo '/c/Program Files (x86)/NSIS/makensis.exe')"
           v="${VERSION:-${GITHUB_REF_NAME//\//-}}"
           "$mk" -V2 "-DVERSION=$v" "-DSRC=$(cygpath -w "$PWD/out")" installer/windows/cauldron.nsi
