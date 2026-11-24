@@ -145,6 +145,9 @@ pub struct Prefs {
     /// runner is up: the `model_server` id of a tiny model, e.g.
     /// "ollama:lfm2.5:latest". None: only the big agent's own model.
     pub subagent_model: Option<String>,
+    /// The Claude model every side stream runs on (Settings > Models > Side streams), e.g.
+    /// "haiku". None: one tier below its main stream's model (`chat::side_route`).
+    pub side_model: Option<String>,
     /// Which small delegated jobs that model runs, from "scouts", "triage"
     /// and "workers". Empty: scouts, the moment a model is chosen (they are
     /// the read-only lookups that are safe to hand to a small model).
@@ -226,6 +229,7 @@ impl Default for Prefs {
             api_keys: BTreeMap::new(),
             appearance: Appearance::default(),
             subagent_model: None,
+            side_model: None,
             local_tasks: vec![],
             hands: Hands::default(),
             model_serve: ModelServeCfg::default(),

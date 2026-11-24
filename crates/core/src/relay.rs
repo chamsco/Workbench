@@ -261,13 +261,15 @@ pub fn send(data: &Path, me: &str, to: &str, text: &str, reply: bool) -> Result<
 /// The stream a CLI turn answers in, for `backspace mcp`'s `delegate`.
 pub const ENV_STREAM: &str = "BACKSPACE_STREAM";
 
-/// A sub-agent one stream asked for: a new stream on any provider, given only
-/// `task` (never the parent's history). Its answer comes back to `from` as
+/// A side stream a main stream asked for, given only `task` (never the parent's history) unless
+/// `context` says otherwise. Its answer comes back to `from` as
 /// that stream's next turn, like a tile's letter.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Spawn {
     pub from: String,
-    /// A coding CLI id: claude, codex, cursor, opencode, grok, gemini.
+    /// Ignored: the app picks a side stream's CLI and model (`chat::side_route`). Kept so a
+    /// request queued by an older build still reads.
+    #[serde(default)]
     pub provider: String,
     #[serde(default)]
     pub model: Option<String>,
@@ -284,28 +286,19 @@ pub struct Spawn {
     pub crew: Option<String>,
 }
 
-/// The CLIs a stream may hand work to: installed and able to chat headless.
-pub const DELEGATES: [&str; 6] = ["claude", "codex", "cursor", "opencode", "grok", "gemini"];
-
-/// `delegate`: queue a sub-agent and say what happens next.
-pub fn delegate(data: &Path, me: &str, provider: &str, model: Option<&str>, title: Option<&str>, task: &str, context: Option<&str>) -> Result<String> {
-    let provider = provider.trim().to_ascii_lowercase();
+/// `delegate`: queue a side stream and say what happens next. The app picks its CLI and model
+/// (`chat::side_route`), never the stream that asks.
+pub fn delegate(data: &Path, me: &str, title: Option<&str>, task: &str, context: Option<&str>) -> Result<String> {
     if task.trim().is_empty() {
-        bail!("give the sub-agent a task: everything it needs, since it does not see this conversation");
-    }
-    if !DELEGATES.contains(&provider.as_str()) {
-        bail!("unknown provider `{provider}`; one of: {}", DELEGATES.join(", "));
-    }
-    if crate::harnesses::which(crate::harnesses::bin_for(&provider)).is_none() {
-        bail!("`{provider}` is not installed on this machine");
+        bail!("give the side stream a task: everything it needs, since it does not see this conversation");
     }
     let out = dir(data).join("spawn");
     std::fs::create_dir_all(&out)?;
     let name = format!("{:013}-{}", crate::chat::now_ms(), crate::chat::new_id());
     let sp = Spawn {
         from: me.into(),
-        provider: provider.clone(),
-        model: model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_string),
+        provider: String::new(),
+        model: None,
         title: title.map(str::trim).filter(|t| !t.is_empty()).map(str::to_string),
         task: task.into(),
         context: context.map(str::trim).filter(|c| matches!(*c, "none" | "last" | "whole")).map(str::to_string),
@@ -314,9 +307,7 @@ pub fn delegate(data: &Path, me: &str, provider: &str, model: Option<&str>, titl
     let tmp = out.join(format!("{name}.tmp"));
     std::fs::write(&tmp, serde_json::to_vec(&sp)?)?;
     std::fs::rename(&tmp, out.join(format!("{name}.json")))?;
-    Ok(format!(
-        "Started a `{provider}` side thread under this stream. Its answer comes back to you as your next message once it finishes: end your turn now unless you have other work."
-    ))
+    Ok("Started a side stream under this stream. Its answer comes back to you as your next message once it finishes: end your turn now unless you have other work.".into())
 }
 
 /// `ask_crew`: queue a job for a familiar's crew member (its standing side thread).
@@ -349,28 +340,6 @@ pub fn drain_spawns(data: &Path) -> Vec<Spawn> {
             s
         })
         .collect()
-}
-
-/// `list_providers`: who a stream can delegate to here, and whether each is signed in.
-pub fn providers() -> String {
-    let lines: Vec<String> = DELEGATES
-        .iter()
-        .filter(|p| crate::harnesses::which(crate::harnesses::bin_for(p)).is_some())
-        .map(|p| {
-            let (auth, who) = crate::harnesses::auth_with(p, &[]);
-            let state = match auth {
-                crate::harnesses::Auth::Authenticated => format!("signed in{}", who.map(|w| format!(" ({w})")).unwrap_or_default()),
-                crate::harnesses::Auth::Unauthenticated => "not signed in".into(),
-                crate::harnesses::Auth::Unknown => "sign-in unknown".into(),
-            };
-            format!("- {p}: {state}")
-        })
-        .collect();
-    if lines.is_empty() {
-        "No coding CLI is installed here.".into()
-    } else {
-        lines.join("\n")
-    }
 }
 
 /// `backspace tile list | send <name> <text>`, for CLIs without MCP.

@@ -654,6 +654,7 @@ impl Cauldron {
                 cx.notify();
             }))
             .test_support();
+        col = col.child(row(("agent", 4), "Side streams".into(), "The model a main stream's side streams always run on. Auto is one tier below the main's model.".into(), self.side_model_chip(value(side_model_label(&p)), cx).into_any_element()));
         col = col.child(row(("agent", 2), "Effort".into(), "How hard the CLI thinks before it answers.".into(), effort.into_any_element()));
         let policy = div()
             .id("set-failover")
@@ -675,6 +676,34 @@ impl Cauldron {
             .test_support();
         col = col.child(row(("agent", 3), "When a subscription hits its limit".into(), "Switch to the next account and resume, ask you first, or leave accounts alone.".into(), policy.into_any_element()));
         div().id("settings-body").size_full().overflow_y_scroll().flex().justify_center().child(col).test_support().into_any_element()
+    }
+}
+
+/// Settings > Side streams: what a click moves to next (None = Auto, one tier below the main).
+pub const SIDE_MODELS: [Option<&str>; 4] = [None, Some("haiku"), Some("sonnet"), Some("opus")];
+
+fn side_model_label(p: &Prefs) -> String {
+    p.side_model.as_deref().filter(|m| !m.is_empty()).map_or_else(|| "Auto".into(), |m| m[..1].to_uppercase() + &m[1..])
+}
+
+impl Cauldron {
+    /// The side streams' model (Charles, 24 Nov): cycles Auto, Haiku, Sonnet, Opus.
+    #[inline(never)]
+    fn side_model_chip(&self, shown: Div, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("set-side-model")
+            .cursor_pointer()
+            .hover(|d| d.opacity(0.85))
+            .aria_label("Change side stream model")
+            .child(shown)
+            .on_click(cx.listener(|_, _, _, cx| {
+                let mut p = Prefs::load();
+                let at = SIDE_MODELS.iter().position(|m| *m == p.side_model.as_deref()).unwrap_or(0);
+                p.side_model = SIDE_MODELS[(at + 1) % SIDE_MODELS.len()].map(str::to_string);
+                p.save();
+                cx.notify();
+            }))
+            .test_support()
     }
 }
 

@@ -681,6 +681,8 @@ pub struct Chats {
     /// Hand-offs so far in the chain each thread's latest turn belongs to;
     /// a turn the user started is 0.
     hops: Mutex<HashMap<String, u8>>,
+    /// Side streams each main stream started since the user last wrote there ([`MAX_SIDES`]).
+    sides: Mutex<HashMap<String, u8>>,
 }
 
 /// A message from another tile, waiting or being answered.
@@ -757,6 +759,39 @@ pub const TODO_BRIEF: &str = "# Your plan\n\nWhen a task takes more than one ste
 /// After a finished task, a few things the user might want next (Charles, 22 Nov): the app shows
 /// them on a Done card to tick, each with its why behind a "?".
 pub const NEXT_BRIEF: &str = "# Next steps\n\nWhen you have finished what was asked (not when you are asking the user something, failed, or are still part way), end your reply with a fenced `next` block whose body is one JSON object: {\"items\": [{\"text\": \"Add a test for the login fix\", \"why\": \"The bug could come back unnoticed; a test pins it down.\"}]}. Give two to four things the user might want next, most useful first. `text` is a short instruction the user could send you as is; `why` is one plain sentence on what it means and why it helps. The user sees these as choices, not in your text, so don't list them again in prose. Leave the block out when nothing sensible follows.";
+
+/// A main stream plans and hands the doing to side streams (Charles, 24 Nov: "like Claude
+/// Projects"). Only in Act mode: a question gets answered, not delegated.
+pub const SIDE_BRIEF: &str = "# Plan here, execute in side streams\n\nYou are the main stream: you reason, plan and judge. When the work means doing things (editing files, running builds or tests, sweeping many files), hand each piece to a side stream with `delegate` instead of doing it yourself, then check what comes back and decide the next step. Side streams run a smaller model and see only what you send, so give each one a precise, self-contained task: the goal, the files, the constraints, how to check it is done and what to report. They cannot start side streams of their own. Answer questions and make small one-line fixes yourself; don't delegate for the sake of it.";
+
+/// Side streams one main stream may start per message from the user, so a loop can't run up a bill.
+pub const MAX_SIDES: u8 = 6;
+
+/// The model family one tier below a Claude model, for its side streams: fable > opus > sonnet >
+/// haiku. Haiku stays haiku; an id we can't place gets sonnet, never the same big model.
+pub fn one_tier_below(model: Option<&str>) -> &'static str {
+    let m = model.unwrap_or("").to_ascii_lowercase();
+    if m.contains("haiku") || m.contains("sonnet") {
+        "haiku"
+    } else if m.contains("fable") {
+        "opus"
+    } else {
+        "sonnet"
+    }
+}
+
+/// The route a side stream of a stream on `main` runs on: the model picked in Settings when there
+/// is one (a Claude model), else one tier below a Claude main. Other CLIs and local models keep
+/// the main's route, as their smaller models aren't known here.
+pub fn side_route(main: &Route, pick: Option<&str>) -> Route {
+    if let Some(m) = pick.map(str::trim).filter(|m| !m.is_empty()) {
+        return Route { kind: RouteKind::Cli, provider: "claude".into(), model: Some(m.to_string()) };
+    }
+    if main.kind == RouteKind::Cli && main.provider == "claude" {
+        return Route { kind: RouteKind::Cli, provider: "claude".into(), model: Some(one_tier_below(main.model.as_deref()).into()) };
+    }
+    main.clone()
+}
 
 const SESSION_NAMER: &str = "You name conversations for a list. Reply with only a title of two to six words in sentence case, saying what the conversation was about, with no quotes and no full stop.";
 
@@ -880,6 +915,7 @@ impl Chats {
             inbox: Mutex::new(HashMap::new()),
             answering: Mutex::new(HashMap::new()),
             hops: Mutex::new(HashMap::new()),
+            sides: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1522,6 +1558,7 @@ impl Chats {
             });
         }
         self.hops.lock().unwrap().insert(id.to_string(), 0);
+        self.sides.lock().unwrap().remove(id);
         // `@codex ...` naming another harness tile hands the message to that
         // tile: it answers in its own session, and the answer is posted here.
         let tiles = crate::relay::tiles(&self.dir);
@@ -1661,17 +1698,27 @@ impl Chats {
         Ok(())
     }
 
-    /// A sub-agent a stream asked for (`delegate`): a new stream on that
-    /// provider, in the parent's project, given only the task. Its answer goes
-    /// back to the parent as the parent's next turn; it counts as a hand-off,
-    /// so sub-agents can't nest past [`crate::relay::MAX_HOPS`].
+    /// A side stream a main stream asked for (`delegate`), in the main's project, given only the
+    /// task, on the side model ([`side_route`]). Its answer goes back to the main as the main's
+    /// next turn. Side streams never start side streams (Charles, 24 Nov), and a main starts at
+    /// most [`MAX_SIDES`] per message from the user.
     pub fn spawn_sub(self: &Arc<Self>, sp: &crate::relay::Spawn, ctx: Ctx) -> Result<String> {
         let parent = self.peek(&sp.from).ok_or_else(|| anyhow!("the stream that asked is gone"))?;
-        let hops = self.hops.lock().unwrap().get(&sp.from).copied().unwrap_or(0) + 1;
-        if hops > crate::relay::MAX_HOPS {
-            self.note(&sp.from, &sp.from, &format!("(Sub-agent not started: work has been handed on {} times already.)", crate::relay::MAX_HOPS));
-            bail!("too many hand-offs");
+        if parent.side_of.is_some() && !self.leads(&parent, &ctx) {
+            self.note(&sp.from, &sp.from, "(Side stream not started: a side stream reports back to its main stream and can't start others.)");
+            bail!("a side stream can't start side streams");
         }
+        {
+            let mut sides = self.sides.lock().unwrap();
+            let n = sides.entry(sp.from.clone()).or_insert(0);
+            if *n >= MAX_SIDES {
+                drop(sides);
+                self.note(&sp.from, &sp.from, &format!("(Side stream not started: {MAX_SIDES} already started since your last message.)"));
+                bail!("too many side streams");
+            }
+            *n += 1;
+        }
+        let hops = 1;
         let main = parent.side_of.clone().unwrap_or_else(|| parent.id.clone());
         // A crew member of a familiar: its standing thread under the captain gets the job.
         if let Some(name) = sp.crew.as_deref() {
@@ -1689,7 +1736,8 @@ impl Chats {
             return Ok(child);
         }
         let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Side thread").chars().take(60).collect());
-        let route = Route { kind: RouteKind::Cli, provider: sp.provider.clone(), model: sp.model.clone() };
+        // The app picks the model, never the main stream (`sp.provider`/`sp.model` are ignored).
+        let route = side_route(&parent.route, ctx.prefs.side_model.as_deref());
         // A side thread of the stream that asked (Charles, 22 Nov: a stream is a coordinator, its
         // side threads are the normal threads it spawns), filed beside it and starting with the
         // context it chose.
@@ -1782,6 +1830,13 @@ impl Chats {
     /// job, so it remembers the last one (nobody is killed when a job ends).
     /// A crew member's standing thread under its captain's stream `main`, made when it has none:
     /// the captain hands it work there, and you can talk to it there too (Charles, 22 Nov 20:04).
+    /// Whether `t` belongs to a familiar (its captain's own work, even in a side thread such as an
+    /// automation's): it may hand work to its crew.
+    fn leads(&self, t: &Thread, ctx: &Ctx) -> bool {
+        let (Some(id), Some(agents)) = (t.agent.as_deref(), ctx.agents.as_ref()) else { return false };
+        agents.get(id).is_some_and(|a| a.lead.is_some())
+    }
+
     pub fn crew_thread_or_new(&self, main: &str, member: &crate::agents::Agent) -> Result<String> {
         if let Some(id) = self.crew_thread(main, &member.id) {
             return Ok(id);
@@ -2805,15 +2860,20 @@ Ask the reader for input with the real form parts: `f = FormControl(\"Name\", In
             env.insert(crate::relay::ENV_TILE.into(), id.into());
             req.env.push((crate::relay::ENV_TILE.into(), id.into()));
         }
-        // Every stream may start sub-agents on any provider (`delegate`), at the top level only
-        // when it was not itself handed the work twice already (MAX_HOPS).
+        // A main stream may start side streams (`delegate`); spawn_sub picks their model.
         // A familiar (an agent that leads a crew) coordinates too: it hands its crew work.
         let leads = call.agent.as_ref().is_some_and(|a| a.lead.is_some());
-        let can_delegate = (call.agent.is_none() || leads) && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
+        // A side stream never delegates (Charles, 24 Nov): only a main stream, or a familiar's
+        // own threads, which are the captain itself.
+        let main_stream = leads || self.peek(id).is_some_and(|t| t.side_of.is_none());
+        let can_delegate = main_stream && (call.agent.is_none() || leads) && matches!(route.provider.as_str(), "claude" | "codex") && route.kind == RouteKind::Cli;
         if can_delegate {
             env.insert(crate::relay::ENV_STREAM.into(), id.into());
             // A coordinator keeps its plan where the user sees it and can steer it.
             req.system = Some(format!("{}{TODO_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            if !ctx.ask && !plan {
+                req.system = Some(format!("{}{SIDE_BRIEF}", req.system.take().map(|s| s + "\n\n").unwrap_or_default()));
+            }
         }
         // A bot's rules, however it is called (its thread or a group): the
         // CLI's own tools it may not use, and what `backspace mcp` leaves out.
@@ -3628,7 +3688,7 @@ mod tests {
         assert_eq!(ct.title, "Audit billing");
         assert_eq!(ct.side_of.as_deref(), Some(parent.as_str()), "a side thread of the stream that asked");
         assert_eq!(ct.project.as_deref(), Some("/work/app"), "the sub-agent works in the parent's project");
-        assert_eq!((ct.route.provider.as_str(), ct.route.model.as_deref()), ("cauldron-test-missing-cli", Some("m1")));
+        assert_eq!(ct.route, route(), "the model it asked for is ignored: a non-Claude main's sides keep its route");
         assert_eq!(ct.messages[0].text, "Audit the billing page", "only the task, never the parent's history");
         let pt = c.thread(&parent).unwrap();
         assert!(pt.messages[0].text.contains("failed"), "its answer (here a failure) comes back as the parent's turn: {:?}", pt.messages[0]);
@@ -3641,6 +3701,57 @@ mod tests {
         c.pump(dead_ctx());
         assert_eq!(c.list().len(), before + 1);
         assert!(crate::relay::drain_spawns(&dir).is_empty(), "taken once");
+    }
+
+    /// Charles, 24 Nov: side streams run a smaller model than their main, or the one he picked.
+    #[test]
+    fn a_side_stream_runs_one_tier_below_its_main_or_the_model_picked_in_settings() {
+        let claude = |m: Option<&str>| Route { kind: RouteKind::Cli, provider: "claude".into(), model: m.map(str::to_string) };
+        for (main, side) in [
+            (Some("fable"), "opus"),
+            (Some("claude-opus-4-8[1m]"), "sonnet"),
+            (Some("opus"), "sonnet"),
+            (Some("claude-sonnet-5-5"), "haiku"),
+            (Some("haiku"), "haiku"),
+            (None, "sonnet"),
+        ] {
+            assert_eq!(side_route(&claude(main), None), claude(Some(side)), "main {main:?}");
+        }
+        assert_eq!(side_route(&claude(Some("opus")), Some("haiku")), claude(Some("haiku")), "the Settings pick wins");
+        let codex = Route { kind: RouteKind::Cli, provider: "codex".into(), model: Some("gpt-5".into()) };
+        assert_eq!(side_route(&codex, Some("sonnet")), claude(Some("sonnet")), "the Settings pick wins on any main");
+    }
+
+    /// Charles, 24 Nov: a side stream reports back but never starts streams of its own.
+    #[test]
+    fn a_side_stream_cannot_start_side_streams() {
+        let dir = tmp("nospawn");
+        let (c, _rt) = chats(&dir);
+        let main = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
+        let job = |from: &str| crate::relay::Spawn { from: from.into(), provider: String::new(), model: None, title: None, task: "x".into(), context: None, crew: None };
+        let side = c.spawn_sub(&job(&main), dead_ctx()).unwrap();
+        settle(&c, &[&main, &side]);
+        let before = c.list().len();
+        assert!(c.spawn_sub(&job(&side), dead_ctx()).is_err());
+        assert_eq!(c.list().len(), before, "no stream was made");
+    }
+
+    /// Replies coming back used to spend the main's hop budget, so its third side stream for one
+    /// message was refused. Now the only limit is MAX_SIDES per message from the user.
+    #[test]
+    fn a_main_stream_keeps_delegating_until_the_cap_and_a_new_message_resets_it() {
+        let dir = tmp("cap");
+        let (c, _rt) = chats(&dir);
+        let main = c.create_in(route(), Scope { project: Some("/work/app".into()), ..Scope::default() }).id;
+        let job = crate::relay::Spawn { from: main.clone(), provider: String::new(), model: None, title: None, task: "x".into(), context: None, crew: None };
+        for i in 0..MAX_SIDES {
+            let side = c.spawn_sub(&job, dead_ctx()).unwrap_or_else(|e| panic!("side {i}: {e}"));
+            settle(&c, &[&main, &side]);
+        }
+        assert!(c.spawn_sub(&job, dead_ctx()).is_err(), "one past the cap");
+        c.send(&main, "next task", Vec::new(), None, dead_ctx()).unwrap();
+        settle(&c, &[&main]);
+        assert!(c.spawn_sub(&job, dead_ctx()).is_ok(), "a message from the user starts a new count");
     }
 
     #[test]
