@@ -30,7 +30,7 @@ pub(crate) fn os_reduces_motion() -> bool {
 
 /// Debug builds stretch every duration by CAULDRON_MOTION_SLOW (e.g. 10) so mid-frames can be
 /// screenshotted; release builds ignore it.
-fn slow() -> f32 {
+pub(crate) fn slow() -> f32 {
     if !cfg!(debug_assertions) {
         return 1.0;
     }

@@ -31,6 +31,8 @@ mod slash;
 mod plan;
 mod donecard;
 mod boardview;
+mod canvasmodel;
+mod canvasview;
 mod imageview;
 mod flowview;
 mod chipmenu;
@@ -2110,6 +2112,17 @@ impl Render for Cauldron {
                 moving = true;
             }
         }
+        // Canvas and Board handing over; a working canvas keeps its pill and lines moving.
+        if let Some((t0, _)) = self.board.swap {
+            if crate::motion::run(now, t0, canvasview::swap_ms()) >= 1.0 {
+                self.board.swap = None;
+            } else {
+                moving = true;
+            }
+        }
+        if self.board.canvas && !self.board.view && self.open.is_some() && self.busy() {
+            moving = true;
+        }
         if self.bg_wipe.as_ref().is_some_and(|(_, t)| t.elapsed().as_millis() < colours::WIPE_MS) {
             moving = true;
         } else {
@@ -2677,6 +2690,7 @@ impl Render for Cauldron {
         let tb = cauldron_chrome::panes::rects(area, sp)[at];
         self.thread_box.set(if split { (tb.w, tb.h - 32.0) } else { (tb.w, tb.h) });
         self.board_prepare();
+        self.canvas_prepare();
         let body = match self.settings {
             Some(page) => self.settings_page(page, pal, cx),
             None if self.usage_page => self.usage_page_body(pal, cx),

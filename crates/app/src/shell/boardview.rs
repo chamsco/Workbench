@@ -67,6 +67,19 @@ pub(crate) struct BoardState {
     pub group: bool,
     pub agent_menu: bool,
     pub bounds: Rc<Cell<Bounds<Pixels>>>,
+    /// The open stream shows its Canvas (canvasview.rs) when the board is not on.
+    pub canvas: bool,
+    /// The canvas's camera: the screen offset of point (0, 0), and the zoom.
+    pub ccam: (f32, f32, f32),
+    /// How many cards the canvas had when it was last fitted; None to fit again.
+    pub cfit: Option<usize>,
+    /// A pan under way: where the press was, and the camera then.
+    pub cpan: Option<(f32, f32, f32, f32)>,
+    /// The Tasks tray is open.
+    pub tray: bool,
+    pub cbounds: Rc<Cell<Bounds<Pixels>>>,
+    /// Canvas and Board handing over: when it began, and whether it goes to the Board.
+    pub swap: Option<(std::time::Instant, bool)>,
 }
 
 impl Default for BoardState {
@@ -89,6 +102,13 @@ impl Default for BoardState {
             group: false,
             agent_menu: false,
             bounds: Rc::new(Cell::new(Bounds::default())),
+            canvas: false,
+            ccam: (60., 90., 1.0),
+            cfit: None,
+            cpan: None,
+            tray: false,
+            cbounds: Rc::new(Cell::new(Bounds::default())),
+            swap: None,
         }
     }
 }
@@ -98,7 +118,7 @@ fn node_h(n: &Node) -> f32 {
     44. + if n.images.is_empty() { 0. } else { 140. } + 17. * n.changes.len().min(4) as f32 + 34.
 }
 
-fn clock(ms: u64) -> String {
+pub(super) fn clock(ms: u64) -> String {
     use chrono::{Local, TimeZone};
     Local.timestamp_millis_opt(ms as i64).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
 }
@@ -280,22 +300,8 @@ impl Cauldron {
         cx.notify();
     }
 
-    fn set_board_view(&mut self, on: bool, cx: &mut Context<Self>) {
-        // From a side stream, Board goes to its coordinator's board, Chat back to the coordinator.
-        let root = self.board.thread.clone();
-        if !root.is_empty() && self.open.as_deref() != Some(root.as_str()) {
-            self.selected = Some(root.clone());
-            self.open_thread(root);
-        }
-        self.board.view = on;
-        if on {
-            self.board.fitted = false;
-        }
-        cx.notify();
-    }
-
-    /// Chat | Board, in the header where the tabs were, on the line of the header's tools
-    /// (Charles, 22 Nov). A side stream shows its chat, so Chat is on there.
+    /// Chat | Canvas | Board, in the header where the tabs were, on the line of the header's tools
+    /// (Charles, 22 Nov; Canvas 24 Nov). A side stream shows its chat, so Chat is on there.
     #[inline(never)]
     pub(super) fn view_switch(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
@@ -320,15 +326,17 @@ impl Cauldron {
                 .child(glyph(icon, 13., if on { c(pal.fg2) } else { fg3 }))
                 .child(label)
         };
-        let on = self.board.view && self.open.as_deref() == Some(self.board.thread.as_str());
+        let here = self.open.as_deref() == Some(self.board.thread.as_str());
+        let v = if !here { 0 } else if self.board.view { 2 } else if self.board.canvas { 1 } else { 0 };
         div()
             .id("view-switch")
             .h(px(metric::TAB_H))
             .flex()
             .items_center()
             .gap(px(2.))
-            .child(seg("view-chat", "message-square", "Chat", !on).on_click(cx.listener(|this, _, _, cx| this.set_board_view(false, cx))).test_support())
-            .child(seg("view-board", "layout-dashboard", "Board", on).on_click(cx.listener(|this, _, _, cx| this.set_board_view(true, cx))).test_support())
+            .child(seg("view-chat", "message-square", "Chat", v == 0).on_click(cx.listener(|this, _, _, cx| this.set_stream_view(0, cx))).test_support())
+            .child(seg("view-canvas", "workflow", "Canvas", v == 1).on_click(cx.listener(|this, _, _, cx| this.set_stream_view(1, cx))).test_support())
+            .child(seg("view-board", "layout-dashboard", "Board", v == 2).on_click(cx.listener(|this, _, _, cx| this.set_stream_view(2, cx))).test_support())
             .test_support()
             .into_any_element()
     }
@@ -472,8 +480,22 @@ impl Cauldron {
     /// A coordinator stream: its chat or its board, with the Chat | Board switch on top.
     #[inline(never)]
     pub(super) fn coordinator_body(&self, t: &Thread, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        // Canvas and Board hand over (Charles, 24 Nov): the one going zooms past and fades, the
+        // one coming settles in from a little further off.
+        if let Some((t0, to_board)) = self.board.swap {
+            let p = cauldron_chrome::motion::SETTLE.at(crate::motion::run(std::time::Instant::now(), t0, super::canvasview::swap_ms()));
+            if p < 1.0 {
+                let (canvas_zoom, canvas_alpha, board_alpha, board_dy) = if to_board { (1. + 0.35 * p, 1. - p, p, 26. * (1. - p)) } else { (0.82 + 0.18 * p, p, 1. - p, 26. * p) };
+                let board = div().absolute().inset_0().top(px(board_dy)).bottom(px(-board_dy)).opacity(board_alpha).child(self.board_el(pal, cx));
+                let canvas = div().absolute().inset_0().child(self.canvas_el(t, canvas_zoom, canvas_alpha, pal, cx));
+                let (under, over) = if to_board { (canvas.into_any_element(), board.into_any_element()) } else { (board.into_any_element(), canvas.into_any_element()) };
+                return div().id("view-swap").relative().size_full().overflow_hidden().child(under).child(over).into_any_element();
+            }
+        }
         if self.board.view {
             self.board_el(pal, cx)
+        } else if self.board.canvas {
+            self.canvas_el(t, 1.0, 1.0, pal, cx)
         } else {
             self.thread_view(t, pal, cx)
         }
