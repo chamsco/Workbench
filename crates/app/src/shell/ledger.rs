@@ -36,6 +36,8 @@ pub(super) struct Step {
     pub file: Option<String>,
     /// A tool's arguments, as JSON text, for its block (not for files, commands or reasoning).
     pub args: Option<String>,
+    /// How many times the call was made in a row after failing: 1 unless it was retried.
+    pub tries: usize,
 }
 
 fn base(path: &str) -> String {
@@ -145,7 +147,11 @@ fn describe(a: &Act, thinking: Option<&str>) -> (String, String, Option<String>)
         "WebSearch" | "WebFetch" => ("Searching the web".into(), "Searched the web".into(), None),
         "Task" | "Agent" => ("Running a subagent".into(), "Ran a subagent".into(), None),
         "TodoWrite" => ("Planning".into(), "Planned".into(), None),
-        n => (format!("Running {n}"), format!("Ran {n}"), None),
+        // MCP tools arrive as mcp__server__tool: "linear: get_issue", as the steps summary says.
+        n => match n.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
+            Some((server, tool)) => (format!("Calling {server}: {tool}"), format!("Used {server}: {tool}"), None),
+            None => (format!("Running {n}"), format!("Ran {n}"), None),
+        },
     }
 }
 
@@ -200,7 +206,17 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
         let file = matches!(canon(&a.name), "Read" | "Edit" | "MultiEdit" | "Write" | "NotebookEdit").then(|| a.path.clone().or_else(|| field(&a.input, &["file_path", "filePath", "path", "notebook_path"]))).flatten();
         let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| command_of(&a.input)).flatten().filter(|c| !c.trim().is_empty());
         let args = if file.is_none() && full.is_none() && a.name != "Thinking" { pretty(&a.input) } else { None };
-        out.push(Part::Step(Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), args, file }));
+        let step = Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), args, file, tries: 1 };
+        // A call made again right after it failed (the same tool on the same thing, nothing
+        // between) is one line that counts its tries, not a line per attempt (Charles, 23 Nov).
+        if let Some(Part::Step(p)) = out.last_mut() {
+            if p.error && p.done == step.done && p.cmd == step.cmd {
+                let (key, start, tries) = (p.key.clone(), p.start, p.tries + 1);
+                *p = Step { key, start, tries, ..step };
+                continue;
+            }
+        }
+        out.push(Part::Step(step));
     }
     push_text(&mut out, &m.text[prev.min(m.text.len())..]);
     out
@@ -258,7 +274,13 @@ impl Cauldron {
         // A finished command is its terminal card, shut (a failure opens on what it printed).
         if let (false, Some((cmd, out))) = (live, &s.shell) {
             let open = self.act_open.get(&s.key).copied().unwrap_or(s.error);
-            return self.shell_block(&s.key, cmd, out, false, s.error, s.start, s.end, Some(open), pal, cx);
+            return self.shell_block(&s.key, cmd, out, false, s.error, s.start, s.end, Some(open), s.tries, pal, cx);
+        }
+        // A finished tool call is one card: its header is the line, the arguments open under it
+        // (Charles, 23 Nov: "just the top of the card ... when you expand it, the arguments").
+        if let (false, Some(args), None) = (live, &s.args, &s.detail) {
+            let open = self.act_open.get(&s.key).copied().unwrap_or(false);
+            return self.tool_block(&s.key, &s.done, args, false, s.error, s.start, s.end, s.tries, Some(open), pal, cx);
         }
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let still = cx.reduce_motion();
@@ -267,6 +289,7 @@ impl Cauldron {
         let open = self.act_open.get(&s.key).copied().unwrap_or(live && s.shell.is_none());
         let foldable = s.detail.is_some() || s.args.is_some();
         let label = if live { s.live.clone() } else { s.done.clone() };
+        let label = if s.tries > 1 { format!("{label} · {} tries", s.tries) } else { label };
         let time = match ended {
             Some(e) if e > s.start => Some(dur(e - s.start)),
             None if live => Some(dur(now.saturating_sub(s.start))),
@@ -335,7 +358,10 @@ impl Cauldron {
                     .pl(px(8.))
                     .pr(px(6.))
                     .rounded(px(radius::INSET))
-                    .bg(c(pal.inset))
+                    .bg(c(pal.panel))
+                    .border_1()
+                    .border_color(c(pal.line_strong))
+                    .shadow(super::lift(super::Lift::Button, pal))
                     .text_color(c(pal.fg2))
                     .child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).text_color(fg3).child(clock(now.saturating_sub(s.start))))
                     .child(
@@ -394,9 +420,9 @@ impl Cauldron {
         let mut col = div().flex().flex_col().child(row.test_support());
         if open {
             if let Some((cmd, out)) = &s.shell {
-                col = col.child(self.shell_block(&key, cmd, out, live, s.error, s.start, s.end, None, pal, cx));
+                col = col.child(self.shell_block(&key, cmd, out, live, s.error, s.start, s.end, None, s.tries, pal, cx));
             } else if let (Some(args), None) = (&s.args, &s.detail) {
-                col = col.child(self.tool_block(&key, &s.live, &s.done, args, live, s.error, s.start, s.end, pal, cx));
+                col = col.child(self.tool_block(&key, if live { &s.live } else { &s.done }, args, live, s.error, s.start, s.end, s.tries, None, pal, cx));
             } else if let Some(d) = &s.detail {
                 let code = d.starts_with("$ ");
                 col = col.child(
@@ -409,10 +435,12 @@ impl Cauldron {
                         .max_h(px(220.))
                         .overflow_y_scroll()
                         .rounded(px(radius::CONTROL))
-                        .bg(c(pal.inset))
+                        .bg(c(pal.panel))
+                        .border_1()
+                        .border_color(c(pal.line_strong))
                         .text_size(px(12.))
                         .line_height(px(17.))
-                        .text_color(c(pal.fg3))
+                        .text_color(c(pal.fg2))
                         .relative()
                         .when(code, |d| d.font_family(MONO))
                         .child(div().pr(px(40.)).child(d.clone()))
@@ -424,49 +452,101 @@ impl Cauldron {
         col.into_any_element()
     }
 
-    /// An opened tool call (Tuff UI's tool call block): its name, status and duration, then its
-    /// arguments, in the Surface layers. A step cannot be re-run on its own (the CLI owns the
+    /// A tool call as one card (Tuff UI's tool call block, compact): a 30px header with the tool,
+    /// its status and time, and a chevron; the arguments open under it. `fold` is Some(open) for a
+    /// finished call, which stands as its own card and opens on a click; None under a running
+    /// step's line, where it is always open. A step cannot be re-run on its own (the CLI owns the
     /// call), so there is no Retry here.
-    fn tool_block(&self, key: &str, live_label: &str, done_label: &str, args: &str, live: bool, error: bool, start: u64, end: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let (word, ink, fill) = if live {
-            ("Running", c(pal.fg2), c(pal.selected))
+    #[allow(clippy::too_many_arguments)]
+    fn tool_block(&self, key: &str, title: &str, args: &str, live: bool, error: bool, start: u64, end: Option<u64>, tries: usize, fold: Option<bool>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let shown = fold != Some(false);
+        let (word, icon, ink, fill) = if live {
+            ("Running", None, c(pal.fg2), c(pal.selected))
         } else if error {
-            ("Error", c(pal.bad), ca(pal.bad, 0.12))
+            ("Failed", Some("x"), c(pal.bad), ca(pal.bad, 0.12))
         } else {
-            ("Success", c(pal.fg2), c(pal.selected))
+            ("Done", Some("check"), c(pal.fg2), c(pal.selected))
         };
         let took = if live { Some(now_ms().saturating_sub(start)) } else { end.map(|e| e.saturating_sub(start)) };
-        let word = match took {
+        let mut word = match took {
             Some(ms) => format!("{word} · {}", dur(ms)),
             None => word.to_string(),
         };
-        let chip = div().flex_none().h(px(18.)).px(px(7.)).flex().items_center().rounded(px(radius::TAG)).bg(fill).text_size(px(10.5)).font_weight(FontWeight::MEDIUM).font_features(tnum()).text_color(ink).child(word.clone());
-        let title = if live { live_label } else { done_label };
-        div()
+        if tries > 1 {
+            word = format!("{word} · {tries} tries");
+        }
+        // The arguments' first values, on the header, so a shut card still says what it was asked.
+        let gist = serde_json::from_str::<serde_json::Value>(args).ok().and_then(|v| v.as_object().map(|o| o.values().filter_map(|x| x.as_str().map(str::to_string).or_else(|| (x.is_number() || x.is_boolean()).then(|| x.to_string()))).take(2).collect::<Vec<_>>().join(" · "))).filter(|g| !g.is_empty());
+        let hair = c(pal.line);
+        let k = key.to_string();
+        super::surface::block(pal)
             .id(format!("tool-{key}"))
-            .ml(px(24.))
+            .when(fold.is_none(), |d| d.ml(px(24.)))
             .my(px(4.))
+            .overflow_hidden()
+            .text_size(px(12.))
             .aria_label(format!("{title}, {word}"))
             .child(
-                super::surface::shell(pal)
-                    .child(super::surface::shell_header("wrench", title.to_string(), format!("{} argument{}", args.lines().count().saturating_sub(2).max(1), if args.lines().count() > 3 { "s" } else { "" }), Some(chip.into_any_element()), pal))
+                div()
+                    .id(format!("tool-head-{key}"))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(30.))
+                    .px(px(10.))
+                    .when(shown, |d| d.border_b_1().border_color(hair))
+                    .when_some(fold, |d, open| {
+                        d.cursor_pointer().hover(|d| d.bg(c(pal.hover))).on_click(cx.listener(move |this, _, _, cx| {
+                            this.act_open.insert(k.clone(), !open);
+                            cx.notify();
+                        }))
+                    })
+                    .child(glyph("wrench", 12., fg3))
+                    .child(div().flex_none().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(fg).child(title.to_string()))
+                    .child(div().min_w_0().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().font_family(MONO).text_size(px(11.)).text_color(fg3).children(gist))
                     .child(
-                        super::surface::panel(pal)
-                            .child(div().text_size(px(10.5)).text_color(c(pal.fg3)).child("Arguments"))
-                            .child(
-                                super::surface::inset(pal)
-                                    .id(format!("tool-args-{key}"))
-                                    .max_h(px(180.))
-                                    .overflow_y_scroll()
-                                    .font_family(MONO)
-                                    .text_size(px(11.5))
-                                    .line_height(px(17.))
-                                    .text_color(c(pal.fg2))
-                                    .child(args.to_string()),
-                            )
-                            .child(div().flex().justify_end().child(copy_button(format!("tool-copy-{key}"), args.to_string(), pal, cx))),
-                    ),
+                        div()
+                            .flex_none()
+                            .h(px(18.))
+                            .px(px(7.))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .rounded(px(radius::TAG))
+                            .bg(fill)
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .font_features(tnum())
+                            .text_color(ink)
+                            .when_some(icon, |d, i| d.child(glyph(i, 10., ink)))
+                            .child(word.clone()),
+                    )
+                    .when_some(fold, |d, open| d.child(div().flex_none().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 10., fg3)))),
             )
+            .when(shown, |d| {
+                d.child(
+                    div()
+                        .px(px(10.))
+                        .py(px(8.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(div().text_size(px(10.5)).text_color(fg3).child("Arguments"))
+                        .child(
+                            super::surface::inset(pal)
+                                .id(format!("tool-args-{key}"))
+                                .max_h(px(180.))
+                                .overflow_y_scroll()
+                                .font_family(MONO)
+                                .text_size(px(11.5))
+                                .line_height(px(17.))
+                                .text_color(c(pal.fg2))
+                                .child(args.to_string()),
+                        )
+                        .child(div().flex().justify_end().child(copy_button(format!("tool-copy-{key}"), args.to_string(), pal, cx))),
+                )
+            })
             .test_support()
             .into_any_element()
     }
@@ -476,7 +556,8 @@ impl Cauldron {
     /// A command as Tuff UI's terminal output: `$ cmd`, its status and time, then what it printed.
     /// `fold` is Some(open) for a finished command, which stands as its own card (no "Ran" line)
     /// and opens on a click; None under a running step's line.
-    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, start: u64, end: Option<u64>, fold: Option<bool>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    #[allow(clippy::too_many_arguments)]
+    fn shell_block(&self, key: &str, cmd: &str, out: &str, live: bool, error: bool, start: u64, end: Option<u64>, fold: Option<bool>, tries: usize, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let shown = fold != Some(false);
         let hash = commit_hash(cmd, out);
@@ -499,15 +580,15 @@ impl Cauldron {
             Some(n) => format!("{word} · exit {n}"),
             None => word,
         };
+        // Retried after failing: say how many times, in the same chip (one card, not one per try).
+        let word = if tries > 1 { format!("{word} · {tries} tries") } else { word };
         let n = out.lines().count();
         let hair = c(pal.line);
         let k = key.to_string();
-        div()
+        super::surface::block(pal)
             .id(format!("shell-{key}"))
             .when(fold.is_none(), |d| d.ml(px(24.)))
             .my(px(4.))
-            .rounded(px(radius::INSET))
-            .bg(c(pal.inset))
             .overflow_hidden()
             .text_size(px(12.))
             .aria_label(format!("$ {cmd}, {word}"))
@@ -721,6 +802,21 @@ mod tests {
         let live = msg("", vec![r(1), act("Read", "{}", 0, 400, None)]);
         assert_eq!(parts(&live, true).len(), 2);
         assert!(matches!(&parts(&live, false)[0], Part::Step(s) if s.end == Some(400) && s.done == "Read 2 files"));
+    }
+
+    /// Catches: a call retried after failing drawing one line per attempt (Charles, 23 Nov), or
+    /// two different failed calls being merged as if they were retries of one.
+    #[::core::prelude::v1::test]
+    fn a_failed_call_tried_again_is_one_line_counting_its_tries() {
+        let fail = |start: u64| Act { error: true, ..act("Bash", r#"{"command":"npm test"}"#, 0, start, Some(start + 50)) };
+        let m = msg("done", vec![fail(0), fail(100), act("Bash", r#"{"command":"npm test"}"#, 0, 200, Some(250)), fail(300)]);
+        let p = parts(&m, false);
+        // Two failures then a success: one line, three tries, ended well; a failure after a
+        // success is a new attempt of its own.
+        assert_eq!(p.iter().filter(|x| matches!(x, Part::Step(_))).count(), 2, "{p:?}");
+        assert!(matches!(&p[0], Part::Step(s) if s.tries == 3 && !s.error && s.start == 0 && s.end == Some(250)), "{p:?}");
+        let other = Act { error: true, ..act("Bash", r#"{"command":"npm run lint"}"#, 0, 400, Some(450)) };
+        assert_eq!(parts(&msg("done", vec![fail(0), other]), false).iter().filter(|x| matches!(x, Part::Step(_))).count(), 2, "different commands stay apart");
     }
 
     #[::core::prelude::v1::test]
