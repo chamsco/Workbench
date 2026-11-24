@@ -97,6 +97,18 @@ impl Cauldron {
         cx.notify();
     }
 
+    /// Archives or brings back stream `id` without the menu (the Library's row button).
+    pub(super) fn archive_stream(&mut self, id: &str, on: bool, cx: &mut Context<Self>) {
+        if let Some((_, c)) = &self.core {
+            let _ = c.archive(id, on);
+        }
+        if on && self.open.as_deref() == Some(id) {
+            self.close_open_stream();
+        }
+        self.refresh();
+        cx.notify();
+    }
+
     /// The open stream is gone from view (archived or deleted): back to the New stream screen.
     pub(super) fn close_open_stream(&mut self) {
         self.open = None;

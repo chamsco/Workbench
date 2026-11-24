@@ -101,6 +101,8 @@ pub mod metric {
     /// Six 32px app buttons, their 4px gaps and the sidebar's 18px of padding.
     pub const SIDEBAR_MIN_W: f32 = 230.0;
     pub const SIDEBAR_MAX_W: f32 = 420.0;
+    /// A drag narrower than this settles on the rail.
+    pub const SIDEBAR_RAIL_SNAP: f32 = 150.0;
     /// The support card's default width; it stays within [`SUPPORT_MIN_W`] and half the window.
     pub const SUPPORT_W: f32 = 470.0;
     pub const SUPPORT_MIN_W: f32 = 360.0;
@@ -145,6 +147,13 @@ pub fn support_width(w: f32) -> f32 {
     metric::SUPPORT_W.min(w / 2.0).max(metric::SUPPORT_MIN_W)
 }
 
+/// A dragged support width: at least [`metric::SUPPORT_MIN_W`], at most what leaves the stream
+/// column its minimum beside a sidebar of its default width.
+pub fn dragged_support_width(w: f32, want: f32) -> f32 {
+    let room = (w - metric::SIDEBAR_W - metric::MAIN_MIN_W - 3.0 * metric::GAP).max(metric::SUPPORT_MIN_W);
+    want.clamp(metric::SUPPORT_MIN_W, room)
+}
+
 /// The window's geometry for exactly the state asked for.
 pub fn layout(w: f32, h: f32, state: ShellState, platform: Platform) -> Shell {
     layout_framed(w, h, state, platform, metric::FRAME)
@@ -161,17 +170,30 @@ pub fn layout_framed(w: f32, h: f32, state: ShellState, platform: Platform, fram
 pub struct Sidebar {
     pub w: f32,
     pub push: f32,
+    /// A dragged support card width; 0 is the default ([`support_width`]).
+    pub support: f32,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { w: metric::SIDEBAR_W, push: 0.0 }
+        Sidebar { w: metric::SIDEBAR_W, push: 0.0, support: 0.0 }
     }
 }
 
-/// A dragged width, held to the room the apps row needs and the most the sidebar takes.
-pub fn sidebar_width(w: f32) -> f32 {
-    w.clamp(metric::SIDEBAR_MIN_W, metric::SIDEBAR_MAX_W)
+/// The skinny rail: the narrowest the sidebar goes (Charles, 23 Nov). Wide enough for the lights on
+/// macOS, one button on Windows; it holds icons only.
+pub fn rail_width(platform: Platform) -> f32 {
+    if platform == Platform::Mac { 72.0 } else { 48.0 }
+}
+
+/// A dragged width: the rail below [`metric::SIDEBAR_RAIL_SNAP`], else held to the room the apps
+/// row needs and the most the sidebar takes.
+pub fn sidebar_width(w: f32, platform: Platform) -> f32 {
+    if w < metric::SIDEBAR_RAIL_SNAP {
+        rail_width(platform)
+    } else {
+        w.clamp(metric::SIDEBAR_MIN_W, metric::SIDEBAR_MAX_W)
+    }
 }
 
 fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, side: Sidebar) -> Shell {
@@ -183,10 +205,10 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
     let (top, bottom, right) = (frame, h - frame, w - frame);
     let full_h = bottom - top;
 
-    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_width(side.w), full_h));
+    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_width(side.w, platform), full_h));
     let left = sidebar.map_or(frame + side.push, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
-        let sw = support_width(w);
+        let sw = if side.support > 0.0 { dragged_support_width(w, side.support) } else { support_width(w) };
         Rect::new(right - sw, top, sw, full_h)
     });
     let col_right = support.map_or(right, |s| s.x - GAP);
@@ -202,6 +224,9 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
         (col, None)
     };
 
+    // The skinny rail: the sidebar at its narrowest holds icons only, so the header buttons sit in the stream
+    // card as they do with the sidebar folded on Windows.
+    let slim = sidebar.is_some_and(|s| s.w < SIDEBAR_MIN_W);
     let host = support.unwrap_or(main);
     let rail = Rect::new(host.right() - 1.0 - RAIL_W, host.y + BODY_TOP, RAIL_W, host.h - BODY_TOP - 1.0);
     let bar = strip.then(|| Rect::new(0.0, 0.0, w, BAR_H));
@@ -224,6 +249,11 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
             let sbtn = Rect::new(main.x + HEAD_IN, row_y, SBTN, SBTN);
             (None, sbtn, None, None, sbtn.x + 72.0 + SBTN + 10.0)
         }
+        (Some(sb), _) if slim => {
+            let lights = (!windows).then(|| Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H));
+            let sbtn = Rect::new(main.x + HEAD_IN, row_y, SBTN, SBTN);
+            (lights, sbtn, None, None, sbtn.x + 72.0 + SBTN + 10.0)
+        }
         // Open: the sidebar's top row holds the lights or the logo, then search and the button.
         (Some(sb), _) => {
             let lights = (!windows).then(|| Rect::new(sb.x + 12.0, sb.y + 17.0, LIGHTS_W, LIGHTS_H));
@@ -243,7 +273,7 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
             (None, sbtn, None, None, sbtn.right() + 15.0)
         }
     };
-    let (search_button, bell_button) = if platform == Platform::Windows && sidebar.is_none() {
+    let (search_button, bell_button) = if (platform == Platform::Windows && sidebar.is_none()) || slim {
         (Rect::new(sidebar_button.x + 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x + 72.0, sidebar_button.y, SBTN, SBTN))
     } else {
         (Rect::new(sidebar_button.x - 36.0, sidebar_button.y, SBTN, SBTN), Rect::new(sidebar_button.x - 72.0, sidebar_button.y, SBTN, SBTN))

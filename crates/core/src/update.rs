@@ -279,32 +279,59 @@ pub fn old_exe(exe: &std::path::Path) -> std::path::PathBuf {
     exe.with_extension("old.exe")
 }
 
-/// Downloads the newest `Cauldron.exe` and puts it where the running exe is. Windows lets a
-/// running exe be renamed but not overwritten, so the running one moves to `Cauldron.old.exe`
-/// (deleted by [`tidy_old_exe`] on the next start) and the download takes its name. Returns the
-/// path to start; the caller starts it and quits. Blocking: call it off the UI thread.
-pub fn install_exe() -> Result<std::path::PathBuf> {
+/// Downloads the newest `Cauldron.exe` beside the running exe, as `Cauldron.new.exe`, reporting
+/// (bytes so far, bytes in all; 0 when unknown) as it goes. Nothing is replaced yet: the app keeps
+/// running, and [`apply_download`] swaps it in when the user says so (Charles, 23 Nov: download
+/// first, then "Update ready"). Blocking: call it off the UI thread.
+pub fn download_exe(progress: &(dyn Fn(u64, u64) + Send + Sync)) -> Result<std::path::PathBuf> {
     let exe = std::env::current_exe()?;
+    let new = exe.with_extension("new.exe");
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let bytes = rt.block_on(async {
+    rt.block_on(async {
         let http = reqwest::Client::new();
         let (url, size) = exe_asset(&http).await?;
-        let body = http
+        let mut res = http
             .get(&url)
             .header("user-agent", "backspace")
             .timeout(std::time::Duration::from_secs(600))
             .send()
             .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
+            .error_for_status()?;
+        let total = if size > 0 { size } else { res.content_length().unwrap_or(0) };
+        let mut body: Vec<u8> = Vec::with_capacity(total as usize);
+        while let Some(chunk) = res.chunk().await? {
+            body.extend_from_slice(&chunk);
+            progress(body.len() as u64, total);
+        }
         if size > 0 && body.len() as u64 != size {
             anyhow::bail!("the download stopped early ({} of {} bytes)", body.len(), size);
         }
-        anyhow::Ok(body)
+        // An exe is a PE file: "MZ" first. Anything else (an HTML error page) must not be kept.
+        if body.len() < 2 || &body[..2] != b"MZ" {
+            anyhow::bail!("the download is not a Windows program");
+        }
+        std::fs::write(&new, &body)?;
+        anyhow::Ok(())
     })?;
-    swap_exe(&exe, &bytes)?;
+    Ok(new)
+}
+
+/// Puts a downloaded `Cauldron.new.exe` where the running exe is: the running one moves to
+/// `Cauldron.old.exe` (deleted by [`tidy_old_exe`] on the next start). Returns the path to start.
+pub fn apply_download() -> Result<std::path::PathBuf> {
+    let exe = std::env::current_exe()?;
+    let new = exe.with_extension("new.exe");
+    if !new.exists() {
+        anyhow::bail!("the downloaded update is gone; download it again");
+    }
+    swap_in(&exe, &new)?;
     Ok(exe)
+}
+
+/// Downloads the newest `Cauldron.exe` and puts it where the running exe is.
+pub fn install_exe() -> Result<std::path::PathBuf> {
+    download_exe(&|_, _| {})?;
+    apply_download()
 }
 
 /// Writes `bytes` beside `exe`, sets the running file aside and moves the new one in. On any
@@ -316,10 +343,15 @@ pub fn swap_exe(exe: &std::path::Path, bytes: &[u8]) -> Result<()> {
     }
     let new = exe.with_extension("new.exe");
     std::fs::write(&new, bytes)?;
+    swap_in(exe, &new)
+}
+
+/// Sets the running exe aside and moves `new` into its place; on failure the old one comes back.
+fn swap_in(exe: &std::path::Path, new: &std::path::Path) -> Result<()> {
     let old = old_exe(exe);
     let _ = std::fs::remove_file(&old);
     std::fs::rename(exe, &old)?;
-    if let Err(e) = std::fs::rename(&new, exe) {
+    if let Err(e) = std::fs::rename(new, exe) {
         let _ = std::fs::rename(&old, exe);
         return Err(e.into());
     }

@@ -72,13 +72,91 @@ impl Cauldron {
                 if v.is_empty() {
                     return list.child(note("folders-empty", "No folders yet", "A stream started in a folder shows it here.")).child(note("library-later", "The Librarian is not built yet", "Its tabs show sample proposals, notes and a graph, marked Mockup."));
                 }
+                // Each folder opens in place to its streams (Charles, 23 Nov: "in the library ... I can
+                // click on it", and archive or close a stream from there).
+                let all: Vec<ThreadInfo> = match &self.threads {
+                    Threads::Ready(v) => v.clone(),
+                    _ => Vec::new(),
+                };
+                let mut k = 0usize;
                 for (i, (name, n)) in v.into_iter().enumerate() {
-                    let q = if name == NO_FOLDER { String::new() } else { name.clone() };
+                    let open = self.lib_open.contains(&name);
+                    let key = name.clone();
                     list = list.child(
-                        row(("folder", i), Some(c(pal.fg4)), name, n.to_string())
-                            .on_click(cx.listener(move |this, _, window, cx| this.filter_streams(q.clone(), window, cx)))
+                        row(("folder", i), None, name.clone(), n.to_string())
+                            .aria_expanded(open)
+                            .child(div().flex_none().child(glyph(if open { "chevron-down" } else { "chevron-right" }, 11., fg3)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.lib_open.remove(&key) {
+                                    this.lib_open.insert(key.clone());
+                                }
+                                cx.notify();
+                            }))
                             .test_support(),
                     );
+                    if !open {
+                        continue;
+                    }
+                    let mut ts: Vec<&ThreadInfo> = all.iter().filter(|t| if name == NO_FOLDER { t.project.is_none() } else { t.project.is_some() && threads::meta(t) == name }).collect();
+                    ts.sort_by(|a, b| a.archived.cmp(&b.archived).then(b.updated.cmp(&a.updated)));
+                    for t in ts {
+                        let (oid, aid, mid) = (t.id.clone(), t.id.clone(), t.id.clone());
+                        let archived = t.archived;
+                        let on = self.open.as_deref() == Some(t.id.as_str());
+                        let state = threads::Status::of(t).map(|s| s.label()).unwrap_or(if archived { "Archived" } else { "" });
+                        list = list.child(
+                            div()
+                                .id(("lib-stream", k))
+                                .group("lib-row")
+                                .h(px(28.))
+                                .ml(px(14.))
+                                .pl(px(10.))
+                                .pr(px(4.))
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap(px(6.))
+                                .border_l_1()
+                                .border_color(c(pal.line))
+                                .rounded_r(px(radius::CONTROL))
+                                .cursor_pointer()
+                                .when(on, |d| d.bg(c(pal.selected)))
+                                .hover(|d| d.bg(c(pal.hover)))
+                                .text_size(px(12.5))
+                                .text_color(if archived { fg3 } else { fg2 })
+                                .aria_label(t.title.clone())
+                                .child(div().flex_1().min_w_0().truncate().child(t.title.clone()))
+                                .child(div().flex_none().text_size(px(10.5)).text_color(fg3).child(state))
+                                .child(
+                                    div()
+                                        .id(("lib-archive", k))
+                                        .size(px(22.))
+                                        .flex_none()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(radius::TAG))
+                                        .opacity(0.)
+                                        .group_hover("lib-row", |d| d.opacity(1.))
+                                        .hover(|d| d.bg(c(pal.selected)))
+                                        .aria_label(if archived { "Unarchive" } else { "Archive" })
+                                        .child(glyph(if archived { "archive-restore" } else { "archive" }, 13., fg2))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.archive_stream(&aid, !archived, cx);
+                                        }))
+                                        .test_support(),
+                                )
+                                .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_stream_menu(mid.clone(), ev.position, cx)))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.selected = Some(oid.clone());
+                                    this.open_thread(oid.clone());
+                                    cx.notify();
+                                }))
+                                .test_support(),
+                        );
+                        k += 1;
+                    }
                 }
                 list.child(note("library-later", "The Librarian is not built yet", "Its tabs show sample proposals, notes and a graph, marked Mockup."))
             }
@@ -256,14 +334,13 @@ impl Cauldron {
         cx.notify();
     }
 
-    /// Folders: back to Streams, searching for the folder (the search matches a stream's folder).
+    /// A folder tile on the Library page: opens that folder in the Library list.
     pub(super) fn filter_streams(&mut self, q: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_section(0, cx);
-        self.query = q.clone();
-        self.search_open = !q.is_empty();
-        if let Some((st, _)) = &self.search {
-            st.update(cx, |s, cx| s.set_value(q, window, cx));
-        }
+        // Opens the folder in the Library's list instead of filtering the stream list through the
+        // search field, which then showed the folder's name and kept Done and Archived open
+        // (Charles, 23 Nov).
+        let _ = window;
+        self.lib_open.insert(if q.is_empty() { NO_FOLDER.to_string() } else { q });
         cx.notify();
     }
 }

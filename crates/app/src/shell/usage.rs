@@ -211,13 +211,13 @@ impl Cauldron {
     }
 
     /// The hover card over the user row: connected, then detected, then a link to the page.
-    pub(super) fn usage_card(&self, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn usage_card(&self, pal: &'static Palette, w: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let lines = self.usage_lines();
         let group = |t: &'static str| div().mt(px(4.)).text_size(px(10.5)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(t);
         let mut card = div()
             .id("usage-card")
-            .w(px(280.))
+            .w(px(w))
             .p(px(12.))
             .flex()
             .flex_col()
