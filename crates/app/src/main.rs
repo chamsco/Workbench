@@ -2901,7 +2901,11 @@ fn main() -> anyhow::Result<()> {
         if !backspace_core::instance::claim("Cauldron") {
             return Ok(());
         }
-        return run_shell();
+        // The log and the crash hooks: a crash is offered as a GitHub issue on the next start.
+        backspace_core::crash::install();
+        let r = run_shell();
+        backspace_core::crash::note("quit");
+        return r;
     }
     Prefs::load().apply_keys();
     let ws = std::env::args()
