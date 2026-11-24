@@ -11,6 +11,10 @@ pub(crate) enum Group {
     /// A reply you have not read, or one that failed: either way it waits on you.
     NeedsYou,
     Running,
+    /// Finished in the last day, or pinned: still in view under "Streams" (Charles, 23 Nov: a new
+    /// stream "does not go into the left sidebar" because it went straight to folded Done).
+    Recent,
+    /// Finished more than a day ago.
     Done,
     /// Put away; `of` never returns it, the sidebar adds it as its own shelf.
     Archived,
@@ -20,12 +24,13 @@ pub(crate) enum Group {
 
 impl Group {
     /// Drawing order, top to bottom.
-    pub(crate) const ALL: [Group; 3] = [Group::NeedsYou, Group::Running, Group::Done];
+    pub(crate) const ALL: [Group; 4] = [Group::NeedsYou, Group::Running, Group::Recent, Group::Done];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Group::NeedsYou => "Needs you",
             Group::Running => "Running",
+            Group::Recent => "Recent",
             Group::Done => "Done",
             Group::Archived => "Archived",
             Group::Snoozed => "Snoozed",
@@ -44,15 +49,31 @@ impl Group {
     }
 }
 
+/// How long a finished stream stays under Streams before it folds into Done.
+pub(crate) const RECENT_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// The sidebar group of `t` at `now`: `Group::of`, with a stream finished in the last day (or
+/// pinned) kept in view under Streams.
+pub(crate) fn place(t: &ThreadInfo, now: u64) -> Group {
+    match Group::of(t) {
+        Group::Done if t.pinned || now.saturating_sub(t.updated) < RECENT_MS => Group::Recent,
+        g => g,
+    }
+}
+
 /// Threads matching `query` (case-insensitive, in the title, the preview or the folder's name), in
 /// groups, each
 /// keeping `list()`'s order (pinned first, then newest). Empty groups are left out.
 pub(crate) fn grouped<'a>(list: &'a [ThreadInfo], query: &str) -> Vec<(Group, Vec<&'a ThreadInfo>)> {
+    grouped_at(list, query, backspace_core::chat::now_ms())
+}
+
+pub(crate) fn grouped_at<'a>(list: &'a [ThreadInfo], query: &str, now: u64) -> Vec<(Group, Vec<&'a ThreadInfo>)> {
     let q = query.trim().to_lowercase();
     let hit = |t: &ThreadInfo| q.is_empty() || t.title.to_lowercase().contains(&q) || t.preview.to_lowercase().contains(&q) || (t.project.is_some() && meta(t).to_lowercase().contains(&q));
     Group::ALL
         .iter()
-        .map(|&g| (g, list.iter().filter(|t| Group::of(t) == g && hit(t)).collect::<Vec<_>>()))
+        .map(|&g| (g, list.iter().filter(|t| place(t, now) == g && hit(t)).collect::<Vec<_>>()))
         .filter(|(_, v)| !v.is_empty())
         .collect()
 }
@@ -171,7 +192,7 @@ pub(crate) fn fixture(now: u64) -> Vec<ThreadInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{grouped, meta, sample, Group};
+    use super::{grouped, grouped_at, meta, place, sample, Group, RECENT_MS};
 
     #[test]
     fn a_row_says_its_state_in_words() {
@@ -208,9 +229,21 @@ mod tests {
         v[1].busy = true;
         v[2].unread = true;
         v[4].unread = true;
-        let g = grouped(&v, "");
+        let g = grouped_at(&v, "", 10 * RECENT_MS);
         let ids: Vec<(Group, Vec<&str>)> = g.iter().map(|(g, ts)| (*g, ts.iter().map(|t| t.id.as_str()).collect())).collect();
-        assert_eq!(ids, vec![(Group::NeedsYou, vec!["r", "t"]), (Group::Running, vec!["q"]), (Group::Done, vec!["p", "s"])]);
+        assert_eq!(ids, vec![(Group::NeedsYou, vec!["r", "t"]), (Group::Running, vec!["q"]), (Group::Recent, vec!["p"]), (Group::Done, vec!["s"])]);
+    }
+
+    /// Regression (Charles, 23 Nov): a stream that just finished and was read went straight into
+    /// Done, which starts folded, so a new stream never showed in the sidebar.
+    #[test]
+    fn a_stream_finished_today_stays_in_view_until_a_day_has_passed() {
+        let mut t = sample("a", "A");
+        let now = 100 * RECENT_MS;
+        t.updated = now - 60_000;
+        assert_eq!(place(&t, now), Group::Recent);
+        t.updated = now - RECENT_MS - 1;
+        assert_eq!(place(&t, now), Group::Done);
     }
 
     #[test]
