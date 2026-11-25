@@ -16,6 +16,8 @@ pub(crate) enum Kind {
     Helper,
     Result,
     Plan,
+    /// One version of what the stream made (the coding canvas).
+    Version,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +43,10 @@ pub(crate) struct Card {
     /// The stream a click opens (a helper's side stream).
     pub open: Option<String>,
     pub at: u64,
+    /// A version's board node, which a click opens.
+    pub node: Option<String>,
+    /// The newest version.
+    pub latest: bool,
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -199,7 +205,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
         let start_h = 28. + lines_est * 26.;
         let start = f.cards.len();
         f.last_turn = start;
-        f.cards.push(Card { id: format!("start-{}", turn.ask.id), kind: Kind::Start, title, sub: String::new(), lines: Vec::new(), image: None, answer: None, live: Live::Done, open: None, at: turn.ask.at, x: 0., y: y0, w: START_W, h: start_h });
+        f.cards.push(Card { id: format!("start-{}", turn.ask.id), kind: Kind::Start, title, sub: String::new(), lines: Vec::new(), image: None, answer: None, live: Live::Done, open: None, at: turn.ask.at, x: 0., y: y0, w: START_W, h: start_h, node: None, latest: false });
 
         // What it took in, on the start's left.
         let mut inputs: Vec<(String, &'static str)> = Vec::new();
@@ -234,7 +240,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
         let in_top = y0 + (start_h - inputs.len() as f32 * (in_h + 6.)) / 2.;
         for (k, (name, kind)) in inputs.into_iter().enumerate() {
             let i = f.cards.len();
-            f.cards.push(Card { id: format!("in-{}-{k}", turn.ask.id), kind: Kind::Input, title: name, sub: kind.to_string(), lines: Vec::new(), image: None, answer: None, live: Live::Done, open: None, at: turn.ask.at, x: -INPUT_W - 56., y: in_top + k as f32 * (in_h + 6.), w: INPUT_W, h: in_h });
+            f.cards.push(Card { id: format!("in-{}-{k}", turn.ask.id), kind: Kind::Input, title: name, sub: kind.to_string(), lines: Vec::new(), image: None, answer: None, live: Live::Done, open: None, at: turn.ask.at, x: -INPUT_W - 56., y: in_top + k as f32 * (in_h + 6.), w: INPUT_W, h: in_h, node: None, latest: false });
             f.edges.push((i, start, true));
         }
 
@@ -244,7 +250,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
             let Some(q) = asks(m) else { continue };
             let answer = turn.rest[k + 1..].iter().find(|n| n.role == Role::User).map(|n| clip(n.text.trim(), 80));
             let h = 30. + (q.chars().count() as f32 / 52.).ceil() * 20. + if answer.is_some() { 38. } else { 0. };
-            f.cards.push(Card { id: format!("ask-{}", m.id), kind: Kind::Ask, title: clip(&q, 200), sub: String::new(), lines: Vec::new(), image: None, answer, live: Live::Done, open: None, at: m.at, x: 0., y: qy, w: START_W, h });
+            f.cards.push(Card { id: format!("ask-{}", m.id), kind: Kind::Ask, title: clip(&q, 200), sub: String::new(), lines: Vec::new(), image: None, answer, live: Live::Done, open: None, at: m.at, x: 0., y: qy, w: START_W, h, node: None, latest: false });
             qy += h + 18.;
         }
         col_bottom.push(qy);
@@ -261,7 +267,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
             let sub = if working { doing.map_or_else(|| "Working…".into(), |d| format!("{d}…")) } else if failed { "Stopped on an error".into() } else { "Done".into() };
             let lines = last.map(|m| gist(&m.text, 3)).unwrap_or_default();
             let title = s.title.trim_start_matches("↳ ").to_string();
-            helpers.push(Card { id: format!("side-{}", s.id), kind: Kind::Helper, title: clip(&title, 48), sub, lines, image, answer: None, live: if working { Live::Working } else if failed { Live::Failed } else { Live::Done }, open: Some(s.id.clone()), at: s.created, x: hx, y: 0., w: HELPER_W, h: 0. });
+            helpers.push(Card { id: format!("side-{}", s.id), kind: Kind::Helper, title: clip(&title, 48), sub, lines, image, answer: None, live: if working { Live::Working } else if failed { Live::Failed } else { Live::Done }, open: Some(s.id.clone()), at: s.created, x: hx, y: 0., w: HELPER_W, h: 0., node: None, latest: false });
         }
         for m in turn.rest.iter().filter(|m| m.role == Role::Assistant) {
             let running = matches!(m.status, Status::Sending | Status::Streaming);
@@ -274,7 +280,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
                 };
                 let working = a.end.is_none() && running;
                 let lines = a.output.lines().map(str::trim).filter(|l| !l.is_empty()).take(3).map(|l| clip(l, 90)).collect();
-                helpers.push(Card { id: format!("act-{}-{}", m.id, a.id), kind: Kind::Helper, title: clip(&title, 48), sub: if working { format!("{sub}…") } else { sub.to_string() }, lines, image: None, answer: None, live: if a.error { Live::Failed } else if working { Live::Working } else { Live::Done }, open: None, at: a.start, x: hx, y: 0., w: HELPER_W, h: 0. });
+                helpers.push(Card { id: format!("act-{}-{}", m.id, a.id), kind: Kind::Helper, title: clip(&title, 48), sub: if working { format!("{sub}…") } else { sub.to_string() }, lines, image: None, answer: None, live: if a.error { Live::Failed } else if working { Live::Working } else { Live::Done }, open: None, at: a.start, x: hx, y: 0., w: HELPER_W, h: 0., node: None, latest: false });
             }
         }
         helpers.sort_by_key(|h| h.at);
@@ -315,7 +321,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
             let sub = if changed.is_empty() { String::new() } else { format!("Changed {}", clip(&changed.join(", "), 60)) };
             let h = 52. + if image.is_some() { 196. } else { 0. } + 17. * lines.len() as f32 + if sub.is_empty() { 0. } else { 22. };
             let i = f.cards.len();
-            f.cards.push(Card { id: format!("res-{}", m.id), kind: Kind::Result, title, sub, lines, image, answer: None, live: if working { Live::Working } else if m.status == Status::Error { Live::Failed } else { Live::Done }, open: None, at: m.at, x: rx, y: y0, w: RESULT_W, h });
+            f.cards.push(Card { id: format!("res-{}", m.id), kind: Kind::Result, title, sub, lines, image, answer: None, live: if working { Live::Working } else if m.status == Status::Error { Live::Failed } else { Live::Done }, open: None, at: m.at, x: rx, y: y0, w: RESULT_W, h, node: None, latest: false });
             if helper_ix.is_empty() {
                 f.edges.push((start, i, false));
             } else {
@@ -348,6 +354,8 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
                 y: y0,
                 w: PLAN_W,
                 h,
+                node: None,
+                latest: false,
             });
             f.edges.push((result_ix.unwrap_or(start), i, false));
             col_bottom.push(y0 + h);
@@ -450,4 +458,66 @@ mod tests {
         let ask = f.cards.iter().find(|c| c.kind == Kind::Ask).expect("the question is on the canvas");
         assert_eq!(ask.answer.as_deref(), Some("Mar 2 to 16"));
     }
+}
+
+/// The coding canvas (Charles, 24 Nov): the lineage of what the stream made. Each node of its
+/// Board is a version, numbered in order along the main line with the newest marked Latest; side
+/// streams' work forks off on a row below and joins where it was sent back. Built from the
+/// Board's nodes and links, so a click opens the same node as the Board does.
+pub(crate) fn lineage(b: &backspace_core::whiteboard::Board) -> Flow {
+    let mut f = Flow::default();
+    let mut main: Vec<&backspace_core::whiteboard::Node> = b.nodes.iter().filter(|n| n.via.is_none()).collect();
+    main.sort_by_key(|n| n.at);
+    let mut lanes: Vec<String> = Vec::new();
+    for n in b.nodes.iter().filter(|n| n.via.is_some()) {
+        let v = n.via.clone().unwrap_or_default();
+        if !lanes.contains(&v) {
+            lanes.push(v);
+        }
+    }
+    let height = |n: &backspace_core::whiteboard::Node| 70. + if n.images.is_empty() { 0. } else { 128. } + 17. * n.changes.len().min(3) as f32 + 30.;
+    // Versions in time order across all lanes, so a version number says when it was made.
+    let mut order: Vec<&backspace_core::whiteboard::Node> = b.nodes.iter().collect();
+    order.sort_by_key(|n| n.at);
+    let newest = main.last().map(|n| n.id.clone());
+    let mut ix: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let colw = 280.;
+    let gap = 90.;
+    for (k, n) in order.iter().enumerate() {
+        let lane = n.via.as_ref().and_then(|v| lanes.iter().position(|l| l == v)).map_or(0, |p| p + 1);
+        let x = k as f32 * (colw + gap);
+        let y = lane as f32 * 330.;
+        let mut lines: Vec<String> = n.changes.iter().filter(|c| !c.contains("](")).take(3).map(|c| clip(c, 70)).collect();
+        for r in n.refs.iter().filter(|r| r.kind == "Page" || r.kind == "Artifact") {
+            lines.push(format!("{}: {}", r.kind, clip(r.text.rsplit(['/', '\\']).next().unwrap_or(&r.text), 40)));
+        }
+        let commit = n.refs.iter().find(|r| r.kind == "Commit").map(|r| r.text.clone());
+        let i = f.cards.len();
+        ix.insert(n.id.clone(), i);
+        f.cards.push(Card {
+            id: format!("ver-{}", n.id),
+            kind: Kind::Version,
+            title: clip(&n.title, 44),
+            sub: format!("v{}\u{1f}{}\u{1f}{}", k + 1, super::boardview::clock(n.at), commit.unwrap_or_default()),
+            lines,
+            image: n.images.first().cloned(),
+            answer: n.via.as_ref().map(|v| format!("via {}", clip(v, 30))),
+            live: Live::Done,
+            open: None,
+            at: n.at,
+            node: Some(n.id.clone()),
+            latest: newest.as_deref() == Some(n.id.as_str()),
+            x,
+            y,
+            w: colw,
+            h: height(n),
+        });
+    }
+    for l in &b.links {
+        if let (Some(&a), Some(&c)) = (ix.get(&l.from), ix.get(&l.to)) {
+            f.edges.push((a, c, l.fork));
+        }
+    }
+    f.last_turn = f.cards.len().saturating_sub(4);
+    f
 }
