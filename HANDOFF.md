@@ -10,7 +10,7 @@ live is fine). Docs: `docs/cauldron/parity/` (PARITY.md, STATES.md, PLAN.md, sho
   comes forward (`background::come_forward_on_ask`). Windows keeps the old named mutex for live so
   a new build still sees an old one running. `channel_stamp.rs` holds the channel ("live" unless a
   workflow writes "nightly"); nightly gets its own data folder and window title, so the two never
-  share files. macOS and Linux had no lock before.
+  share files (data folder, `prefs.json` under `~/.config/backspace-nightly`, login entry). macOS and Linux had no lock before, so a copy built before this change is not seen by the new one there.
 - **Stopped turn ending late** no longer frees the new turn's hold (`Chats::release`).
 - **Goals** pause and say why when a turn fails or is stopped; `/goal resume` posts a turn, so it
   no longer re-pauses at once.

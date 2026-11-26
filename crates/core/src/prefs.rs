@@ -663,7 +663,12 @@ impl Prefs {
             return Some(PathBuf::from(p));
         }
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-        Some(PathBuf::from(home).join(".config/backspace/prefs.json"))
+        // Per channel, like the data folder: a nightly saving its prefs must not undo the live app's.
+        let dir = match crate::instance::channel() {
+            crate::instance::Channel::Live => "backspace",
+            crate::instance::Channel::Nightly => "backspace-nightly",
+        };
+        Some(PathBuf::from(home).join(".config").join(dir).join("prefs.json"))
     }
 
     /// The side streams' route picked in Settings, reading the older Claude-only pick too (a
