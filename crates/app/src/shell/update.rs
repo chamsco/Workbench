@@ -688,6 +688,7 @@ fn quit_for_update(cx: &mut App) {
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(5));
         backspace_core::crash::note("update: quit stalled for 5 s; ending the old process");
+        backspace_runner::shutdown_opencode();
         std::process::exit(0);
     });
     cx.quit();

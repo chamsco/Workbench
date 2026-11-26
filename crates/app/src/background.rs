@@ -35,6 +35,18 @@ pub fn install(window: AnyWindowHandle, cx: &mut App) {
     tray::install(window, cx);
 }
 
+/// A second start of this channel asked the running copy to show itself (instance.rs). Windows
+/// also raises the window directly; elsewhere this is the only way it comes forward.
+pub fn come_forward_on_ask(window: AnyWindowHandle, instance: std::sync::Arc<backspace_core::instance::Instance>, cx: &mut App) {
+    cx.spawn(async move |cx: &mut AsyncApp| loop {
+        cx.background_executor().timer(std::time::Duration::from_millis(400)).await;
+        if instance.woken() {
+            handle(Ask::Open, window, cx);
+        }
+    })
+    .detach();
+}
+
 /// What the tray asked for.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Ask {
@@ -86,7 +98,7 @@ mod tray {
         if menu.append_items(&[&open, &PredefinedMenuItem::separator(), &quit]).is_err() {
             return;
         }
-        let mut b = TrayIconBuilder::new().with_tooltip("Cauldron").with_menu(Box::new(menu)).with_menu_on_left_click(false);
+        let mut b = TrayIconBuilder::new().with_tooltip(backspace_core::instance::channel().app_name()).with_menu(Box::new(menu)).with_menu_on_left_click(false);
         if let Some(i) = icon() {
             b = b.with_icon(i);
         }

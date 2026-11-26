@@ -2897,13 +2897,13 @@ fn main() -> anyhow::Result<()> {
     if std::env::var_os("CAULDRON_LEGACY").is_none() {
         // An update on Windows set the old exe aside; it is no longer running now.
         backspace_core::update::tidy_old_exe();
-        // One Cauldron at a time: a second start brings the running window forward.
-        if !backspace_core::instance::claim("Cauldron") {
+        // One Cauldron per channel: a second start brings the running window forward and exits.
+        let Some(instance) = backspace_core::instance::claim() else {
             return Ok(());
-        }
+        };
         // The log and the crash hooks: a crash is offered as a GitHub issue on the next start.
         backspace_core::crash::install();
-        let r = run_shell();
+        let r = run_shell(std::sync::Arc::new(instance));
         backspace_core::crash::note("quit");
         return r;
     }
@@ -2959,7 +2959,7 @@ fn main() -> anyhow::Result<()> {
 
 /// Opens the Cauldron shell: transparent title bar so the frame reaches the window edge,
 /// native lights on macOS at the wireframe's position, drawn caption buttons elsewhere.
-fn run_shell() -> anyhow::Result<()> {
+fn run_shell(instance: std::sync::Arc<backspace_core::instance::Instance>) -> anyhow::Result<()> {
     // WebView2 child windows cannot share GPUI's DirectComposition surface on
     // Windows.  Use the compatible swap-chain path before GPUI initializes.
     #[cfg(target_os = "windows")]
@@ -2986,7 +2986,7 @@ fn run_shell() -> anyhow::Result<()> {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(900.), px(600.))),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Cauldron".into()),
+                        title: Some(backspace_core::instance::channel().app_name().into()),
                         appears_transparent: true,
                         traffic_light_position: cfg!(target_os = "macos").then(|| point(px(lx), px(ly))),
                     }),
@@ -3002,6 +3002,10 @@ fn run_shell() -> anyhow::Result<()> {
             )
             .expect("failed to open window");
             background::install(handle.into(), cx);
+            background::come_forward_on_ask(handle.into(), instance, cx);
+            // Warm `opencode serve` processes live in a static that is never dropped: without this
+            // every quit left them running (and holding a port) after Cauldron was gone.
+            cx.on_app_quit(|_| async { backspace_runner::shutdown_opencode() }).detach();
             cx.activate(true);
         });
     Ok(())

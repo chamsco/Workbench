@@ -819,10 +819,12 @@ impl Prefs {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
+        // Each channel keeps its own folder, so a nightly can run beside the live app (instance.rs).
+        let ch = crate::instance::channel();
         if cfg!(target_os = "macos") {
-            home.join("Library/Application Support/Backspace")
+            home.join("Library/Application Support").join(ch.data_folder(true))
         } else {
-            home.join(".local/share/backspace")
+            home.join(".local/share").join(ch.data_folder(false))
         }
     }
 }
