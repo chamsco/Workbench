@@ -319,7 +319,7 @@ impl Cauldron {
         let stat = |id: &'static str, n: String, label: &'static str| div().id(id).flex_1().flex().flex_col().aria_label(format!("{label}: {n}")).child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).font_features(tnum()).text_color(fg).child(n)).child(div().text_size(px(11.5)).text_color(fg3).child(label)).test_support();
         let context = card()
             .id("float-context")
-            .child(row("fl-machine", "laptop", "This machine".into(), Some("online".into())))
+            .child(row("fl-machine", "laptop", "This machine".into(), None))
             .child(row("fl-folder", "folder-open", folder, None))
             .child(row("fl-route", "message-square", format!("Answered by {}", t.route.provider), None))
             .child(div().h(px(1.)).my(px(6.)).bg(c(pal.line)))
