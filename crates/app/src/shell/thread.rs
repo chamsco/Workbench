@@ -227,20 +227,38 @@ fn pace(shown: f32, last: u64, total: usize, now: u64) -> f32 {
     (shown + dt * speed).min(total as f32)
 }
 
-/// The first `n` characters of `s`, cut back to the last whole word, so the text grows a word at
-/// a time instead of letter by letter.
-fn word_head(s: &str, n: usize) -> &str {
-    let h = head(s, n);
-    if h.len() == s.len() {
-        return s;
+/// A live paragraph's drawing state: where the pace has got to (`n` characters, last drawn at
+/// `last` ms), how much is shown, and the chunks shown in the last `FADE_MS`, each as (characters
+/// shown before it, when it came).
+#[derive(Debug, Default, Clone)]
+pub(super) struct Paced {
+    pub n: f32,
+    pub last: u64,
+    pub shown: usize,
+    pub marks: Vec<(usize, u64)>,
+}
+
+/// How long a chunk of words takes to fade in.
+const FADE_MS: u64 = 260;
+/// A lone word waits this long for a second before it shows alone.
+const LONE_WORD_MS: u64 = 320;
+
+/// Where the shown text of `s` ends next, in characters, given `from` shown and the pace allowing
+/// `to`: words come out two at a time (Charles, 27 Nov: "2 words by 2 words ... with a fading
+/// animation"), more when the pace is far ahead, one when `flush` (the text stopped growing, or a
+/// word has waited long enough). Never mid-word.
+fn chunk_end(s: &str, from: usize, to: usize, flush: bool) -> usize {
+    let cs: Vec<char> = s.chars().collect();
+    let to = to.min(cs.len());
+    if to <= from {
+        return from;
     }
-    // Mid-word: back to the end of the word before it.
-    if s[h.len()..].starts_with(char::is_whitespace) {
-        return h;
-    }
-    match h.rfind(char::is_whitespace) {
-        Some(i) => &h[..i],
-        None => "",
+    // Word ends past `from`: a letter followed by a space, or the end of the text.
+    let ends: Vec<usize> = (from.max(1)..=to).filter(|&k| (k == cs.len() || cs[k].is_whitespace()) && !cs[k - 1].is_whitespace()).collect();
+    match ends.len() {
+        0 => from,
+        1 if !flush => from,
+        _ => *ends.last().unwrap_or(&from),
     }
 }
 
@@ -264,11 +282,12 @@ fn status_line(i: usize, label: String, writing: bool, since: Option<u64>, now: 
         .flex()
         .items_center()
         .gap(px(8.))
-        .h(px(20.))
-        .text_size(px(12.5))
+        .h(px(24.))
+        .text_size(px(13.))
         .text_color(c(grey))
         .aria_label(label.clone())
-        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().flex().items_center().justify_center().child(super::mark::mark(("live-mark", i), if writing { Mark::Working } else { Mark::Waiting }, super::mark::SIZE, c(grey))).test_support())
+        // A Thinking Orb (activity.rs): orbits while it thinks, a ribbon once it writes.
+        .child(div().id(("live-slot", i)).size(px(16.)).flex_none().child(super::orbs::orb(if writing { super::orbs::Orb::Composing } else { super::orbs::Orb::Working }, 16., now, still, super::activity::dark(pal))).test_support())
         // The silver pulse: the same sweep as a running step, so every live line moves alike.
         .child(div().id(("live-text", i)).min_w_0().truncate().child(super::ledger::shimmer(&label, now, c(grey), c(ink), still)).test_support())
         // How long it has waited, as the step lines count theirs.
@@ -1094,19 +1113,36 @@ impl Cauldron {
                 })
             };
             let growing = streaming && (l.parts.is_empty() || last_text == Some(l.parts.len() - 1));
-            let tail = candidate.filter(|(key, text)| growing || self.paced.borrow().get(key).is_some_and(|(n, _)| (*n as usize) < text.chars().count()));
+            let tail = candidate.filter(|(key, text)| growing || self.paced.borrow().get(key).is_some_and(|p| p.shown < text.chars().count() || !p.marks.is_empty()));
+            let mut fade_tail: Option<super::md::Tail> = None;
             let paced: Option<String> = tail.map(|(key, text)| {
                 let total = text.chars().count();
                 let mut map = self.paced.borrow_mut();
                 // First seen: a short start is typed out from the top; a long one (a stream
                 // opened mid-reply) is not replayed.
-                let (was, last) = map.get(&key).copied().unwrap_or((if total < 600 { 0.0 } else { total as f32 }, now_ms));
-                let n = pace(was, last, total, now_ms);
-                map.insert(key, (n, now_ms));
-                if (n as usize) < total {
+                let p = map.entry(key).or_insert_with(|| {
+                    let start = if total < 600 { 0 } else { total };
+                    Paced { n: start as f32, last: now_ms, shown: start, marks: Vec::new() }
+                });
+                p.n = pace(p.n, p.last, total, now_ms);
+                p.last = now_ms;
+                let since = p.marks.last().map_or(u64::MAX, |m| now_ms.saturating_sub(m.1));
+                let next = chunk_end(&text, p.shown, p.n as usize, !growing || since > LONE_WORD_MS);
+                if next > p.shown {
+                    p.marks.push((p.shown, now_ms));
+                    p.shown = next;
+                }
+                p.marks.retain(|m| now_ms.saturating_sub(m.1) < FADE_MS);
+                if p.shown < total || !p.marks.is_empty() {
                     self.pace_behind.set(true);
                 }
-                word_head(&text, n as usize).to_string()
+                let mut fade = [(0u32, 1.0f32); 6];
+                for (slot, m) in fade.iter_mut().zip(p.marks.iter().rev().take(6)) {
+                    let k = (now_ms.saturating_sub(m.1) as f32 / FADE_MS as f32).clamp(0.0, 1.0);
+                    *slot = ((p.shown - m.0) as u32, k * (2.0 - k));
+                }
+                fade_tail = Some(super::md::Tail { now: now_ms, caret: c(pal.accent), fade });
+                head(&text, p.shown).to_string()
             });
             if let (Some(p), true) = (&paced, l.parts.is_empty()) {
                 shown = p.clone();
@@ -1172,7 +1208,7 @@ impl Cauldron {
                     if l.text.is_empty() {
                         d.child(div().text_size(px(14.)).line_height(px(22.)).text_color(fg3).child(shown.clone()))
                     } else {
-                        d.child(self.md_el(&shown, &l.id, paced.as_ref().map(|_| (now_ms, c(pal.accent))), l.at, pal, cx))
+                        d.child(self.md_el(&shown, &l.id, fade_tail, l.at, pal, cx))
                     }
                 })
                 .when_some(live(l.status).filter(|_| l.parts.is_empty()), |d, label| {
@@ -1182,17 +1218,33 @@ impl Cauldron {
             // Between steps nothing else moves (the model is reading what a tool gave back), so a
             // live reply whose last part is a finished step says it is thinking; a retry the CLI
             // waits on says that instead, in the same one line, updated in place.
-            let idle_after_step = matches!(l.parts.last(), Some(super::ledger::Part::Step(st)) if st.end.is_some());
-            let tail_line = (!l.parts.is_empty() && live(l.status).is_some() && (l.wait.is_some() || idle_after_step)).then(|| l.wait.clone().unwrap_or_else(|| "Thinking".to_string()));
-            // The ledger (board A): the text and the steps in the order they happened.
-            for (j, part) in l.parts.iter().enumerate() {
-                say = match part {
-                    super::ledger::Part::Text(t) => {
+            // Thinking / Acting (activity.rs): the steps and the asides between them fold into a
+            // line each run of them; only the answer, and what carries a card, comes out in full.
+            let arranged = super::activity::arrange(&l.parts);
+            let last_is_group = matches!(arranged.last(), Some(super::activity::Shown::Group(_)));
+            let running = live(l.status).is_some();
+            // A retry the CLI waits on, with the answer already under way, still says so below it.
+            let tail_line = (!l.parts.is_empty() && running && !last_is_group && l.wait.is_some()).then(|| l.wait.clone().unwrap_or_default());
+            let n_shown = arranged.len();
+            for (g, sh) in arranged.into_iter().enumerate() {
+                say = match sh {
+                    super::activity::Shown::Text(j) => {
+                        let t = match &l.parts[j] {
+                            super::ledger::Part::Text(t) => t,
+                            _ => continue,
+                        };
                         let live_tail = paced.as_ref().filter(|_| Some(j) == last_text);
-                        say.child(div().id(("part", i * 1000 + j)).child(self.md_el(live_tail.unwrap_or(t), &format!("{}:{j}", l.id), live_tail.map(|_| (now_ms, c(pal.accent))), l.at, pal, cx)))
+                        say.child(div().id(("part", i * 1000 + j)).child(self.md_el(live_tail.unwrap_or(t), &format!("{}:{j}", l.id), live_tail.and(fade_tail), l.at, pal, cx)))
                     }
-                    super::ledger::Part::Step(st) => say.child(self.step_el(st, st.end.is_none(), now_ms, pal, cx)),
+                    super::activity::Shown::Group(ix) => {
+                        let ps: Vec<&super::ledger::Part> = ix.iter().map(|&j| &l.parts[j]).collect();
+                        say.child(self.activity_el(&ps, running && g + 1 == n_shown, l.wait.as_deref(), now_ms, pal, cx))
+                    }
                 };
+            }
+            // Previews: an app it has running (as soon as it runs), the pictures it made.
+            if let Some(pv) = self.previews_el(i, &l.parts, pal, cx) {
+                say = say.child(pv);
             }
             // Link previews under a finished reply, once its text has all been drawn.
             if live(l.status).is_none() && paced.is_none() && !l.text.is_empty() {

@@ -32,6 +32,8 @@ mod slash;
 mod plan;
 mod donecard;
 mod boardview;
+mod orbs;
+mod activity;
 mod imageview;
 mod flowview;
 mod chipmenu;
@@ -363,7 +365,7 @@ pub(crate) struct Cauldron {
     /// What the transcript's last frame measured: stream, width, messages, steps (thread_view).
     transcript_fit: std::cell::RefCell<Option<(String, i32, usize, usize)>>,
     /// The live paragraph's pace: characters shown and when (ms), by message and part.
-    paced: std::cell::RefCell<std::collections::HashMap<String, (f32, u64)>>,
+    paced: std::cell::RefCell<std::collections::HashMap<String, thread::Paced>>,
     /// Last frame left a paced paragraph behind what has arrived: redraw sooner.
     pace_behind: std::cell::Cell<bool>,
     /// Link previews by URL (links.rs): None while one is being fetched.
