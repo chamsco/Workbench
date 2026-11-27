@@ -68,6 +68,8 @@ pub(crate) struct Start {
     pub(crate) pick_reason: bool,
     pub(crate) pick_free: bool,
     pub(crate) pick_open: std::collections::HashSet<String>,
+    /// The new stream starts on its Canvas instead of its chat (Charles, 24 Nov).
+    pub(crate) canvas: bool,
 }
 
 /// The route a new thread gets: the default chat model, else Claude Code if it is installed.
@@ -255,6 +257,9 @@ impl Cauldron {
         // No folder picked: the stream gets its own project folder in the Cauldron workspace.
         let project = self.start.folder.clone().or_else(|| Some(Prefs::new_stream_folder(&text).display().to_string()));
         let t = chats.create_in(route, Scope { project: project.clone(), ..Scope::default() });
+        if self.start.canvas {
+            let _ = chats.set_view(&t.id, Some("canvas"));
+        }
         let sent = (|| {
             use base64::Engine;
             let atts = files.iter().map(|(name, b)| chats.attach(&t.id, name, mime(name), &base64::engine::general_purpose::STANDARD.encode(b))).collect::<anyhow::Result<Vec<_>>>()?;
@@ -539,8 +544,10 @@ impl Cauldron {
         // What the box says under it: why Start waits, a refusal, or a machine's answer.
         let line = |id: &'static str, text: String, col: Hsla| div().id(id).mt(px(10.)).px(px(6.)).text_size(px(12.)).line_height(px(17.)).text_color(col).aria_label(text.clone()).child(text).test_support();
         let heading_text = if self.start.familiar { "What should a mission take on?" } else { "What should Cauldron work on?" };
+        // Chat | Canvas rides above the heading without taking room, so the box keeps its place.
         let heading = div()
             .id("nt-heading")
+            .relative()
             .pb(px(18.))
             .flex()
             .justify_center()
@@ -549,6 +556,7 @@ impl Cauldron {
             .text_color(fg)
             .aria_label(heading_text)
             .child(heading_text)
+            .when(!self.start.familiar, |d| d.child(div().absolute().left_0().right_0().top(px(-44.)).flex().justify_center().text_size(px(12.5)).child(self.start_mode(pal, cx))))
             .test_support();
         let tray_open = self.start.route_menu == Some(super::subs::PickFor::New);
         let stacked = super::subs::tray_stacked();
@@ -676,6 +684,53 @@ impl Cauldron {
             })
             .test_support();
         screen.into_any_element()
+    }
+
+    /// Chat or Canvas: how the new stream starts (Charles, 24 Nov). The header switches it later.
+    #[inline(never)]
+    fn start_mode(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let seg = |id: &'static str, icon: &'static str, label: &'static str, on: bool| {
+            div()
+                .id(id)
+                .h(px(26.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(radius::CONTROL))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if on { fg } else { fg3 })
+                .when(on, |d| d.button_face(pal).pressed().shadow(super::lift(super::Lift::Button, pal)))
+                .when(!on, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg)))
+                .aria_label(label)
+                .aria_selected(on)
+                .child(glyph(icon, 13., if on { c(pal.fg2) } else { fg3 }))
+                .child(label)
+        };
+        let on = self.start.canvas;
+        div()
+            .id("nt-mode")
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(radius::CONTROL + 2.))
+            .bg(c(pal.inset))
+            .border_1()
+            .border_color(c(pal.line))
+            .child(seg("nt-mode-chat", "message-square", "Chat", !on).on_click(cx.listener(|this, _, _, cx| {
+                this.start.canvas = false;
+                cx.notify();
+            })).test_support())
+            .child(seg("nt-mode-canvas", "workflow", "Canvas", on).on_click(cx.listener(|this, _, _, cx| {
+                this.start.canvas = true;
+                cx.notify();
+            })).test_support())
+            .test_support()
+            .into_any_element()
     }
 
     /// The trust chip (the board's "Ask first"): what the coding CLIs may do without asking.

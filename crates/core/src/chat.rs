@@ -418,6 +418,10 @@ pub struct Thread {
     /// `/goal pause`: the goal stays but the stream stops carrying on by itself.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub goal_paused: bool,
+    /// How the stream shows: None for the chat, "canvas" for its Canvas (Charles, 24 Nov: a stream
+    /// starts as either). The last view picked stays with the stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
     /// Never listed or written to disk: a one-off ask (`dreaming`), or a ghost
     /// chat. `Life::Ghost` turns this on for the whole session.
     #[serde(skip)]
@@ -1207,6 +1211,7 @@ impl Chats {
             members: scope.members,
             goal: scope.goal.filter(|g| !g.trim().is_empty()),
             goal_paused: false,
+            view: None,
             life: scope.life,
             expires_at: None,
             ttl_minutes: if scope.life == Life::Temporal {
@@ -1256,6 +1261,12 @@ impl Chats {
                 t.cli_session = None;
             }
         })
+    }
+
+    /// Sets how the stream shows: None for the chat, Some("canvas") for its Canvas.
+    pub fn set_view(&self, id: &str, view: Option<&str>) -> Result<()> {
+        let view = view.map(str::to_string);
+        self.edit_thread(id, |t| t.view = view)
     }
 
     pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
@@ -1460,6 +1471,7 @@ impl Chats {
             members: src.members.clone(),
             goal: src.goal.clone(),
             goal_paused: false,
+            view: None,
             life: Life::Keep,
             expires_at: None,
             ttl_minutes: None,
@@ -2164,6 +2176,7 @@ impl Chats {
             members: vec![],
             goal: None,
             goal_paused: false,
+            view: None,
             // Dreaming: a one-off ask, so it is gone the same way a ghost is.
             life: Life::Ghost,
             expires_at: None,

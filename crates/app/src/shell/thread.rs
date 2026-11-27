@@ -692,6 +692,14 @@ impl Cauldron {
             self.diff_since = None;
             self.restore_ask = false;
         }
+        // A stream opens the way it was left: its chat or its canvas (Charles, 24 Nov).
+        if self.open.as_deref() != Some(id.as_str()) {
+            let canvas = self.thread.as_ref().is_some_and(|t| t.view.as_deref() == Some("canvas") && super::boardview::is_coordinator(t));
+            self.board.canvas = canvas;
+            self.board.cfit = None;
+            self.board.tray = false;
+            self.board.swap = None;
+        }
         self.open = Some(id);
         self.open_since = Some(std::time::Instant::now());
         self.send_error = None;
@@ -1415,6 +1423,115 @@ impl Cauldron {
             msgs = msgs.child(say.test_support());
         }
 
+        let composer = self.composer_box(t, narrow, tiny, pal, cx);
+
+        // The stage bar: usage on the left. Tokens per thread are not in core, so cost only.
+        let spent = cost(t);
+        let usage = div()
+            .id("usage")
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .pt(px(8.))
+            .px(px(2.))
+            .text_size(px(11.))
+            .text_color(fg3)
+            .font_features(tnum())
+            .aria_label(format!("This stream has cost ${spent:.2}"))
+            .child("This stream")
+            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(fg2).child(format!("${spent:.2}")))
+            .test_support();
+
+        // The context bar over the box (the board's `.ctx`): where it runs, the branch, the worktree.
+        let ctx_bar = (!short).then(|| {
+            let item = |id: &'static str, icon: &'static str, text: String| div().id(id).flex().items_center().gap(px(5.)).aria_label(text.clone()).child(glyph(icon, 13., fg3)).child(text).test_support();
+            let mut bar = div().id("ctx-bar").flex().items_center().gap(px(14.)).px(px(12.)).text_size(px(11.5)).text_color(fg3).child(item("ctx-machine", "laptop", "This machine".into()));
+            if let Some(b) = t.project.as_deref().and_then(branch) {
+                bar = bar.child(item("ctx-branch", "git-branch", b));
+            }
+            // No Worktree chip: it did nothing (Charles, 21 Nov), and moving an open stream to a new
+            // folder would lose the CLI's session, which it finds by folder.
+            // A side thread hands its work back to its stream, which judges it as its next turn.
+            if t.side_of.is_some() {
+                let sid = t.id.clone();
+                bar = bar.child(
+                    div()
+                        .id("send-back")
+                        .ml_auto()
+                        .h(px(22.))
+                        .px(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .rounded(px(radius::TAG))
+                        .text_color(fg2)
+                        .cursor_pointer()
+                        .hover(|d| d.bg(c(pal.hover)))
+                        .aria_label("Send the last reply back to the stream")
+                        .child(glyph("corner-up-left", 12., fg2))
+                        .child("Send back to the stream")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some((_, chats)) = this.core.as_ref() {
+                                if let Err(e) = chats.send_back(&sid, this.mode_ctx()) {
+                                    this.send_error = Some(e.to_string());
+                                }
+                            }
+                            this.refresh();
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            }
+            bar.test_support()
+        });
+        // The stream's map on the thread's left (the board's `.mm`): every message at its place in
+        // the whole stream, scaled to the rail (replies long, yours short). It follows the scroll; a
+        // click or a drag on it scrolls there (Charles, 22 Nov).
+        let (pad_x, pad_y) = (if narrow { 10. } else { 18. }, if short { 8. } else { 14. });
+        let ticks = (map_turns.len() > 1).then(|| self.stream_map(&map_turns, pad_y, pal, cx));
+        // Room on the left for the resting map, the same space on both its sides.
+        let lead = (MAP_GAP * 2. + MAP_W - pad_x).max(0.);
+        let msgs = msgs.when_live(ticks.is_some(), |d| d.pl(px(lead))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
+        div()
+            .id("thread")
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap(px(if short { 6. } else { 10. }))
+            .px(px(pad_x))
+            .py(px(pad_y))
+            .child(msgs.test_support())
+            .children(ticks)
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    // A real fade: the transcript dissolves into the card above the box. Not over a
+                    // picture (the Harbour or the user's), where a band of the card's colour would cover it.
+                    .when_live(!self.painting && self.stream_bg.is_none(), |d| {
+                        let bg = super::backdrop::card_bg(false, pal);
+                        d.child(div().id("composer-fade").absolute().left_0().right_0().top(px(-40.)).h(px(40.)).bg(linear_gradient(180., linear_color_stop(bg.opacity(0.), 0.), linear_color_stop(bg, 1.))).test_support())
+                    })
+                    // The plan sits on the box, over where it runs (Charles, 22 Nov).
+                    .children(self.done_el(t, pal, cx))
+                    .children(self.plan_el(t, pal, cx))
+                    .children(ctx_bar)
+                    .child(composer.test_support()),
+            )
+            .when_live(!short, |d| d.child(div().flex().items_end().justify_between().gap(px(8.)).child(usage).children(self.usage_badges(pal))))
+            .into_any_element()
+    }
+}
+
+impl Cauldron {
+    /// The stream's chat box: the editor, its chips and Send or Stop. The chat view sets it under
+    /// the transcript; the Canvas floats it over the bottom (canvasview.rs).
+    #[inline(never)]
+    pub(super) fn composer_box(&self, t: &Thread, narrow: bool, tiny: bool, pal: &'static Palette, cx: &mut Context<Self>) -> Stateful<Div> {
+        let fg2 = c(pal.fg2);
         let busy = self.busy();
         // ponytail: reads the prefs file on each render so a change in Settings shows; cache it in
         // the shell if renders get frequent.
@@ -1574,104 +1691,7 @@ impl Cauldron {
             composer = composer.child(div().id("send-error").text_size(px(12.)).text_color(c(pal.bad)).aria_label(e.clone()).child(e.clone()).test_support());
         }
 
-        // The stage bar: usage on the left. Tokens per thread are not in core, so cost only.
-        let spent = cost(t);
-        let usage = div()
-            .id("usage")
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .pt(px(8.))
-            .px(px(2.))
-            .text_size(px(11.))
-            .text_color(fg3)
-            .font_features(tnum())
-            .aria_label(format!("This stream has cost ${spent:.2}"))
-            .child("This stream")
-            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(fg2).child(format!("${spent:.2}")))
-            .test_support();
-
-        // The context bar over the box (the board's `.ctx`): where it runs, the branch, the worktree.
-        let ctx_bar = (!short).then(|| {
-            let item = |id: &'static str, icon: &'static str, text: String| div().id(id).flex().items_center().gap(px(5.)).aria_label(text.clone()).child(glyph(icon, 13., fg3)).child(text).test_support();
-            let mut bar = div().id("ctx-bar").flex().items_center().gap(px(14.)).px(px(12.)).text_size(px(11.5)).text_color(fg3).child(item("ctx-machine", "laptop", "This machine".into()));
-            if let Some(b) = t.project.as_deref().and_then(branch) {
-                bar = bar.child(item("ctx-branch", "git-branch", b));
-            }
-            // No Worktree chip: it did nothing (Charles, 21 Nov), and moving an open stream to a new
-            // folder would lose the CLI's session, which it finds by folder.
-            // A side thread hands its work back to its stream, which judges it as its next turn.
-            if t.side_of.is_some() {
-                let sid = t.id.clone();
-                bar = bar.child(
-                    div()
-                        .id("send-back")
-                        .ml_auto()
-                        .h(px(22.))
-                        .px(px(8.))
-                        .flex()
-                        .items_center()
-                        .gap(px(5.))
-                        .rounded(px(radius::TAG))
-                        .text_color(fg2)
-                        .cursor_pointer()
-                        .hover(|d| d.bg(c(pal.hover)))
-                        .aria_label("Send the last reply back to the stream")
-                        .child(glyph("corner-up-left", 12., fg2))
-                        .child("Send back to the stream")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some((_, chats)) = this.core.as_ref() {
-                                if let Err(e) = chats.send_back(&sid, this.mode_ctx()) {
-                                    this.send_error = Some(e.to_string());
-                                }
-                            }
-                            this.refresh();
-                            cx.notify();
-                        }))
-                        .test_support(),
-                );
-            }
-            bar.test_support()
-        });
-        // The stream's map on the thread's left (the board's `.mm`): every message at its place in
-        // the whole stream, scaled to the rail (replies long, yours short). It follows the scroll; a
-        // click or a drag on it scrolls there (Charles, 22 Nov).
-        let (pad_x, pad_y) = (if narrow { 10. } else { 18. }, if short { 8. } else { 14. });
-        let ticks = (map_turns.len() > 1).then(|| self.stream_map(&map_turns, pad_y, pal, cx));
-        // Room on the left for the resting map, the same space on both its sides.
-        let lead = (MAP_GAP * 2. + MAP_W - pad_x).max(0.);
-        let msgs = msgs.when_live(ticks.is_some(), |d| d.pl(px(lead))).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()));
-        div()
-            .id("thread")
-            .relative()
-            .size_full()
-            .flex()
-            .flex_col()
-            .gap(px(if short { 6. } else { 10. }))
-            .px(px(pad_x))
-            .py(px(pad_y))
-            .child(msgs.test_support())
-            .children(ticks)
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    // A real fade: the transcript dissolves into the card above the box. Not over a
-                    // picture (the Harbour or the user's), where a band of the card's colour would cover it.
-                    .when_live(!self.painting && self.stream_bg.is_none(), |d| {
-                        let bg = super::backdrop::card_bg(false, pal);
-                        d.child(div().id("composer-fade").absolute().left_0().right_0().top(px(-40.)).h(px(40.)).bg(linear_gradient(180., linear_color_stop(bg.opacity(0.), 0.), linear_color_stop(bg, 1.))).test_support())
-                    })
-                    // The plan sits on the box, over where it runs (Charles, 22 Nov).
-                    .children(self.done_el(t, pal, cx))
-                    .children(self.plan_el(t, pal, cx))
-                    .children(ctx_bar)
-                    .child(composer.test_support()),
-            )
-            .when_live(!short, |d| d.child(div().flex().items_end().justify_between().gap(px(8.)).child(usage).children(self.usage_badges(pal))))
-            .into_any_element()
+        composer
     }
 }
 
