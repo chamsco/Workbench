@@ -95,6 +95,10 @@ pub fn claim() -> Option<Instance> {
     };
     let got = claim_in(&dir, if restarted { 50 } else { 1 }, Duration::from_millis(200));
     match got {
+        // A copy built before the lock existed holds nothing to find, so look for it by its exe.
+        // Skipped after a self-update (the old copy is still quitting) and with a custom data
+        // folder (a dev run beside the installed app).
+        Ok(Some(_)) if !restarted && std::env::var_os("BACKSPACE_DATA").is_none() && legacy_copy_running() => None,
         Ok(Some(i)) => {
             #[cfg(windows)]
             let i = Instance { _mutex: mutex, ..i };
@@ -140,6 +144,52 @@ pub fn claim_in(dir: &Path, tries: u32, gap: Duration) -> std::io::Result<Option
     }
     let _ = std::fs::write(&wake, b"");
     Ok(None)
+}
+
+/// True when another process is running this same executable. Only asked once the lock is ours, so
+/// any such process is a build from before the lock (a newer one would hold it). A replaced exe
+/// (the app dragged over the old one) still counts: Linux marks its path "(deleted)".
+pub fn legacy_copy_running() -> bool {
+    let Ok(me) = std::env::current_exe() else { return false };
+    other_process_runs(&me, &running_exes(), std::process::id())
+}
+
+/// `procs`: (pid, exe path as the OS reports it).
+fn other_process_runs(me: &Path, procs: &[(u32, String)], my_pid: u32) -> bool {
+    let me = me.to_string_lossy();
+    let me = me.trim_end_matches(" (deleted)");
+    procs.iter().any(|(pid, exe)| *pid != my_pid && exe.trim_end_matches(" (deleted)") == me)
+}
+
+#[cfg(target_os = "linux")]
+fn running_exes() -> Vec<(u32, String)> {
+    let Ok(rd) = std::fs::read_dir("/proc") else { return Vec::new() };
+    rd.flatten()
+        .filter_map(|e| {
+            let pid: u32 = e.file_name().to_str()?.parse().ok()?;
+            let exe = std::fs::read_link(e.path().join("exe")).ok()?;
+            Some((pid, exe.to_string_lossy().into_owned()))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn running_exes() -> Vec<(u32, String)> {
+    // `comm` is the full path on macOS.
+    let Ok(out) = std::process::Command::new("ps").args(["-axo", "pid=,comm="]).output() else { return Vec::new() };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let l = l.trim_start();
+            let (pid, exe) = l.split_once(' ')?;
+            Some((pid.parse().ok()?, exe.trim().to_string()))
+        })
+        .collect()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn running_exes() -> Vec<(u32, String)> {
+    Vec::new() // Windows already sees an old copy through the mutex it always held.
 }
 
 fn unlocked(dir: &Path) -> Instance {
@@ -249,6 +299,18 @@ mod tests {
         assert!(!first.woken(), "once per ask");
         drop(first);
         assert!(claim_in(&dir, 1, Duration::ZERO).unwrap().is_some(), "free again once the first quits");
+    }
+
+    /// A copy from before the lock holds nothing to find, so it is seen by its executable: the same
+    /// exe in another process (even replaced on disk) means a second copy; this process alone does not.
+    #[test]
+    fn a_pre_lock_copy_is_found_by_its_exe() {
+        let me = Path::new("/Applications/Cauldron.app/Contents/MacOS/cauldron");
+        let procs = vec![(10, me.to_string_lossy().into_owned()), (11, "/usr/bin/other".into())];
+        assert!(!other_process_runs(me, &procs, 10), "only ourselves");
+        assert!(other_process_runs(me, &procs, 99), "an older copy runs");
+        let replaced = vec![(10, format!("{} (deleted)", me.display()))];
+        assert!(other_process_runs(me, &replaced, 99), "replaced on disk, still running");
     }
 
     /// Nightly beside live is allowed, which only holds if the two never share a folder (and so a lock).
