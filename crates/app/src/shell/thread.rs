@@ -254,7 +254,7 @@ fn chunk_end(s: &str, from: usize, to: usize, flush: bool) -> usize {
         return from;
     }
     // Word ends past `from`: a letter followed by a space, or the end of the text.
-    let ends: Vec<usize> = (from.max(1)..=to).filter(|&k| (k == cs.len() || cs[k].is_whitespace()) && !cs[k - 1].is_whitespace()).collect();
+    let ends: Vec<usize> = (from + 1..=to).filter(|&k| (k == cs.len() || cs[k].is_whitespace()) && !cs[k - 1].is_whitespace()).collect();
     match ends.len() {
         0 => from,
         1 if !flush => from,
@@ -1763,6 +1763,15 @@ pub(super) mod tests {
 
     /// Each of your messages starts a turn and the replies after it belong to it; replies before
     /// your first message make one turn without a prompt.
+    /// Words come out two at a time: one new word after what is shown waits for a second while
+    /// the text grows, and comes out alone once it stops growing (Capy, PR 94).
+    #[::core::prelude::v1::test]
+    fn a_lone_new_word_waits_for_a_second() {
+        assert_eq!(super::chunk_end("Hello world", 5, 11, false), 5);
+        assert_eq!(super::chunk_end("Hello world", 5, 11, true), 11);
+        assert_eq!(super::chunk_end("Hello big world", 5, 15, false), 15);
+    }
+
     #[::core::prelude::v1::test]
     fn turns_group_replies_under_the_prompt_that_asked_for_them() {
         let t = super::turns(&[(false, "Hi, I'm here."), (true, "Fix the **build**"), (false, "## Done\nIt builds."), (false, "More"), (true, "And tests?"), (false, "Yes")]);
