@@ -1,5 +1,23 @@
 # Handoff: Backspace (ohMyHarness → Workbench), v0
 
+**Session, 26 Nov 2026: ADE parity audit, state stress test, one copy per channel.** Charles:
+bring the app up to other ADEs' standard, write a parity doc and a plan, stress-test every feature
+for implicit states and failure loops, and never run two copies of the live app (nightly beside
+live is fine). Docs: `docs/cauldron/parity/` (PARITY.md, STATES.md, PLAN.md, shots/).
+
+- **One copy per channel, every OS.** `instance.rs` locks `instance.lock` in the data folder (the
+  OS drops it on a crash); a second start leaves `instance.wake` and exits, and the running copy
+  comes forward (`background::come_forward_on_ask`). Windows keeps the old named mutex for live so
+  a new build still sees an old one running. `channel_stamp.rs` holds the channel ("live" unless a
+  workflow writes "nightly"); nightly gets its own data folder and window title, so the two never
+  share files (data folder, `prefs.json` under `~/.config/backspace-nightly`, login entry). macOS and Linux had no lock before, so a copy built before this change is not seen by the new one there.
+- **Stopped turn ending late** no longer frees the new turn's hold (`Chats::release`).
+- **Goals** pause and say why when a turn fails or is stopped; `/goal resume` posts a turn, so it
+  no longer re-pauses at once.
+- **OpenCode servers** are killed on quit (they outlived the app on every OS).
+- Open rows (lost letters on restart, automation re-fire when booking fails, board send error,
+  retry popping notes) are in STATES.md.
+
 **Session, 22 Nov 2026: README for the current app.** Charles: update the README to the app as it
 is now, with screenshots on the plain (ASCII dither) background. The README now describes Cauldron
 0.2 (streams, Board, crews and automations, Flow, terminal, updates), points the downloads at

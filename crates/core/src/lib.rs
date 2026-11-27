@@ -14,6 +14,7 @@ pub mod chat;
 pub mod cloud;
 pub mod companion;
 pub mod config;
+pub mod crash;
 pub mod decision;
 pub mod delegate;
 pub mod deliver;

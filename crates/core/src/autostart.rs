@@ -6,7 +6,19 @@
 use anyhow::Result;
 
 #[allow(dead_code)]
-const NAME: &str = "Cauldron";
+/// The login entry's name, per channel (instance.rs): a nightly never repoints or removes the
+/// live app's entry.
+fn name() -> &'static str {
+    crate::instance::channel().app_name()
+}
+
+/// The entry's id on macOS and Linux; live keeps the one every earlier build wrote.
+fn id() -> &'static str {
+    match crate::instance::channel() {
+        crate::instance::Channel::Live => "cauldron",
+        crate::instance::Channel::Nightly => "cauldron-nightly",
+    }
+}
 
 /// Makes the login entry match `on`. Cheap and idempotent: called at every start.
 pub fn sync(on: bool) -> Result<()> {
@@ -36,26 +48,27 @@ fn reg(args: &[&str]) -> Result<()> {
 #[cfg(windows)]
 fn enable(exe: &std::path::Path) -> Result<()> {
     let cmd = format!("\"{}\"", exe.display());
-    reg(&["add", RUN_KEY, "/v", NAME, "/t", "REG_SZ", "/d", &cmd, "/f"])
+    reg(&["add", RUN_KEY, "/v", name(), "/t", "REG_SZ", "/d", &cmd, "/f"])
 }
 
 #[cfg(windows)]
 fn disable() -> Result<()> {
     // Already gone is fine.
-    let _ = reg(&["delete", RUN_KEY, "/v", NAME, "/f"]);
+    let _ = reg(&["delete", RUN_KEY, "/v", name(), "/f"]);
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
 fn plist() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/LaunchAgents/app.cauldron.login.plist"))
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(format!("Library/LaunchAgents/app.{}.login.plist", id())))
 }
 
 #[cfg(target_os = "macos")]
 fn enable(exe: &std::path::Path) -> Result<()> {
     let p = plist().ok_or_else(|| anyhow::anyhow!("no home folder"))?;
     let body = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>app.cauldron.login</string><key>ProgramArguments</key><array><string>{}</string></array><key>RunAtLoad</key><true/></dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>app.{}.login</string><key>ProgramArguments</key><array><string>{}</string></array><key>RunAtLoad</key><true/></dict></plist>\n",
+        id(),
         xml(&exe.display().to_string())
     );
     if std::fs::read_to_string(&p).ok().as_deref() == Some(body.as_str()) {
@@ -84,13 +97,13 @@ fn disable() -> Result<()> {
 #[cfg(not(any(windows, target_os = "macos")))]
 fn desktop() -> Option<std::path::PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))?;
-    Some(base.join("autostart/cauldron.desktop"))
+    Some(base.join(format!("autostart/{}.desktop", id())))
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
 fn enable(exe: &std::path::Path) -> Result<()> {
     let p = desktop().ok_or_else(|| anyhow::anyhow!("no home folder"))?;
-    let body = format!("[Desktop Entry]\nType=Application\nName={NAME}\nExec=\"{}\"\nX-GNOME-Autostart-enabled=true\n", exe.display());
+    let body = format!("[Desktop Entry]\nType=Application\nName={}\nExec=\"{}\"\nX-GNOME-Autostart-enabled=true\n", name(), exe.display());
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d)?;
     }

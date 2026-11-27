@@ -784,17 +784,63 @@ pub fn one_tier_below(model: Option<&str>) -> &'static str {
     }
 }
 
-/// The route a side stream of a stream on `main` runs on: the model picked in Settings when there
-/// is one (a Claude model), else one tier below a Claude main. Other CLIs and local models keep
-/// the main's route, as their smaller models aren't known here.
-pub fn side_route(main: &Route, pick: Option<&str>) -> Route {
-    if let Some(m) = pick.map(str::trim).filter(|m| !m.is_empty()) {
-        return Route { kind: RouteKind::Cli, provider: "claude".into(), model: Some(m.to_string()) };
+/// The route a side stream of a stream on `main` runs on (Charles, 24 Nov: model agnostic): the
+/// route picked in Settings when there is one, on any CLI; else the main's CLI one size down
+/// ([`smaller_model`]), or the main's own route when no smaller model is known for it.
+/// `catalog` is what the main's CLI lists about its models (`harnesses::known_models`).
+pub fn side_route(main: &Route, pick: Option<&Route>, catalog: &[crate::harnesses::ModelInfo]) -> Route {
+    if let Some(p) = pick {
+        return p.clone();
     }
+    let mut r = main.clone();
+    if let Some(m) = smaller_model(main, catalog) {
+        r.model = Some(m);
+    }
+    r
+}
+
+/// One size down from `main`'s model on the same CLI, or None when nothing smaller is known:
+/// - Claude Code: its aliases, fable > opus > sonnet > haiku.
+/// - A CLI that lists prices (OpenCode): the dearest model of the same maker that costs less.
+/// - Otherwise the maker's own naming: Gemini pro > flash > flash-lite, Codex codex(-max) >
+///   codex-mini. An id that fits none of these keeps the main's model.
+pub fn smaller_model(main: &Route, catalog: &[crate::harnesses::ModelInfo]) -> Option<String> {
     if main.kind == RouteKind::Cli && main.provider == "claude" {
-        return Route { kind: RouteKind::Cli, provider: "claude".into(), model: Some(one_tier_below(main.model.as_deref()).into()) };
+        return Some(one_tier_below(main.model.as_deref()).into());
     }
-    main.clone()
+    let m = main.model.as_deref().map(str::trim).filter(|m| !m.is_empty())?;
+    if let Some(c) = cheaper_in_catalog(m, catalog) {
+        return Some(c);
+    }
+    let (dir, name) = match m.rsplit_once('/') {
+        Some((d, n)) => (format!("{d}/"), n),
+        None => (String::new(), m),
+    };
+    let low = name.to_ascii_lowercase();
+    let smaller = if low.starts_with("gemini") && low.contains("-pro") {
+        Some(name.replacen("-pro", "-flash", 1))
+    } else if low.starts_with("gemini") && low.contains("-flash") && !low.contains("lite") {
+        Some(name.replacen("-flash", "-flash-lite", 1))
+    } else if low.contains("codex") && !low.contains("mini") {
+        Some(format!("{}-mini", name.trim_end_matches("-max")))
+    } else {
+        None
+    };
+    smaller.map(|n| format!("{dir}{n}"))
+}
+
+/// The dearest model in `catalog` from the same maker as `model` (its "maker/" prefix, else its
+/// family) that costs less per input token than `model`.
+fn cheaper_in_catalog(model: &str, catalog: &[crate::harnesses::ModelInfo]) -> Option<String> {
+    let me = catalog.iter().find(|i| i.id == model)?;
+    let price = me.input?;
+    let maker = |i: &crate::harnesses::ModelInfo| i.id.rsplit_once('/').map(|(d, _)| d.to_string()).or_else(|| i.family.clone());
+    let mine = maker(me)?;
+    catalog
+        .iter()
+        .filter(|i| maker(i).as_deref() == Some(mine.as_str()) && i.input.is_some_and(|p| p < price))
+        .max_by(|a, b| a.input.partial_cmp(&b.input).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|i| i.id.clone())
 }
 
 const SESSION_NAMER: &str = "You name conversations for a list. Reply with only a title of two to six words in sentence case, saying what the conversation was about, with no quotes and no full stop.";
@@ -1381,7 +1427,9 @@ impl Chats {
             title = "Side stream".into();
         }
         let now = now_ms();
-        let mut t = self.create_in(from.route.clone(), Scope { project: from.project.clone(), title: Some(title), ..Scope::default() });
+        // The side model, like a side stream the main starts itself (Charles, 24 Nov).
+        let route = side_route(&main.route, crate::prefs::Prefs::load().side_pick().as_ref(), &crate::harnesses::known_models(&main.route.provider));
+        let mut t = self.create_in(route, Scope { project: from.project.clone(), title: Some(title), ..Scope::default() });
         t.side_of = Some(main.id.clone());
         t.folder = main.folder.clone();
         t.messages = messages;
@@ -1637,40 +1685,70 @@ impl Chats {
     /// `/goal` (Charles, 22 Nov): a stream with a goal keeps working until its reply says the
     /// goal is met, up to [`GOAL_TURNS`] turns in a row without the user, then pauses.
     fn pursue_goals(self: &Arc<Self>, ctx: Ctx) {
-        let due: Vec<(String, String, bool)> = {
+        enum Next {
+            Nudge,
+            Met,
+            /// GOAL_TURNS turns on its own.
+            Exhausted,
+            /// The last turn failed or was stopped: carrying on would only repeat it, and waiting
+            /// for a Done that never comes would leave the goal on with nothing happening.
+            Halted(String),
+        }
+        let due: Vec<(String, String, Next)> = {
             let all = self.threads.lock().unwrap();
             all.values()
-                .filter(|t| !t.goal_paused && t.members.is_empty() && !t.archived)
+                .filter(|t| t.members.is_empty() && !t.archived)
                 .filter_map(|t| {
                     let g = t.goal.clone()?;
                     let last = t.messages.last()?;
-                    if last.role != Role::Assistant || last.status != Status::Done {
+                    if last.role != Role::Assistant {
                         return None;
                     }
-                    let met = last.text.contains(GOAL_MET);
-                    let run = t.messages.iter().rev().filter(|m| m.role == Role::User).take_while(|m| m.text.starts_with(GOAL_NUDGE)).count();
-                    Some((t.id.clone(), g, met || run >= GOAL_TURNS)).filter(|_| met || !self.is_busy(&t.id))
+                    let met = last.status == Status::Done && last.text.contains(GOAL_MET);
+                    // A paused goal still ends when a reply says it is met.
+                    if t.goal_paused && !met {
+                        return None;
+                    }
+                    let next = match last.status {
+                        _ if met => Next::Met,
+                        Status::Done => {
+                            let run = t.messages.iter().rev().filter(|m| m.role == Role::User).take_while(|m| m.text.starts_with(GOAL_NUDGE)).count();
+                            if run >= GOAL_TURNS { Next::Exhausted } else { Next::Nudge }
+                        }
+                        Status::Error => Next::Halted(format!("the last turn failed: {}", last.error.clone().unwrap_or_default())),
+                        Status::Stopped => Next::Halted("the last turn was stopped".into()),
+                        Status::Sending | Status::Streaming => return None,
+                    };
+                    Some((t.id.clone(), g, next))
                 })
                 .collect()
         };
-        for (id, goal, stop) in due {
+        for (id, goal, next) in due {
             if self.is_busy(&id) || self.inbox.lock().unwrap().get(&id).is_some_and(|q| !q.is_empty()) {
                 continue;
             }
-            if stop {
-                let met = self.thread(&id).and_then(|t| t.messages.last().map(|m| m.text.contains(GOAL_MET))).unwrap_or(false);
-                let _ = self.edit_thread(&id, |t| {
-                    if met {
+            let note = match next {
+                Next::Nudge => {
+                    let _ = self.send(&id, &format!("{GOAL_NUDGE} {goal}"), Vec::new(), None, ctx.clone());
+                    continue;
+                }
+                Next::Met => {
+                    let _ = self.edit_thread(&id, |t| {
                         t.goal = None;
-                    } else {
-                        t.goal_paused = true;
-                    }
-                });
-                let note = if met { format!("(Goal met: {goal})") } else { format!("(Goal paused after {GOAL_TURNS} turns on its own: {goal}. `/goal resume` carries on.)") };
-                self.note(&id, &id, &note);
-                continue;
-            }
-            let _ = self.send(&id, &format!("{GOAL_NUDGE} {goal}"), Vec::new(), None, ctx.clone());
+                        t.goal_paused = false;
+                    });
+                    format!("(Goal met: {goal})")
+                }
+                Next::Exhausted => {
+                    let _ = self.edit_thread(&id, |t| t.goal_paused = true);
+                    format!("(Goal paused after {GOAL_TURNS} turns on its own: {goal}. `/goal resume` carries on.)")
+                }
+                Next::Halted(why) => {
+                    let _ = self.edit_thread(&id, |t| t.goal_paused = true);
+                    format!("(Goal paused, {why}. `/goal resume` carries on: {goal})")
+                }
+            };
+            self.note(&id, &id, &note);
         }
     }
 
@@ -1749,7 +1827,7 @@ impl Chats {
         }
         let title = sp.title.clone().unwrap_or_else(|| sp.task.lines().next().unwrap_or("Side thread").chars().take(60).collect());
         // The app picks the model, never the main stream (`sp.provider`/`sp.model` are ignored).
-        let route = side_route(&parent.route, ctx.prefs.side_model.as_deref());
+        let route = side_route(&parent.route, ctx.prefs.side_pick().as_ref(), &crate::harnesses::known_models(&parent.route.provider));
         // A side thread of the stream that asked (Charles, 22 Nov: a stream is a coordinator, its
         // side threads are the normal threads it spawns), filed beside it and starting with the
         // context it chose.
@@ -2020,6 +2098,11 @@ impl Chats {
     /// A tile finished a turn: its answer goes back to whoever asked, and the
     /// next letter waiting for it starts.
     fn after_turn(self: &Arc<Self>, tid: &str, mid: &str, ctx: &Ctx) {
+        // A turn that was stopped and replaced: the new turn owns the tile's letters now. Starting
+        // the next one here would run two turns on one thread.
+        if self.is_busy(tid) {
+            return;
+        }
         // Still answering until the answer is on its way: the asker's turn
         // starts (or its letter waits) before this tile lets go.
         let inb = self.answering.lock().unwrap().get(tid).cloned();
@@ -2268,7 +2351,7 @@ impl Chats {
             if mentioned {
                 let _ = me.edit_thread(&tid, |t| t.cli_session = None);
             }
-            me.running.lock().unwrap().remove(&tid);
+            me.release(&tid);
             let spec = res.is_ok() && call.agent.is_none() && (ctx.plan || me.plan_of(&tid));
             me.finish(&tid, &mid, res);
             if spec {
@@ -2281,6 +2364,18 @@ impl Chats {
         running.insert(id.to_string(), task.abort_handle());
         drop(running);
         self.poke();
+    }
+
+    /// The task that ran a turn lets go of its thread as it ends: only its own hold. A turn that
+    /// was stopped can still reach here (stopping takes effect at its next pause, and it may have
+    /// none left), by which time a new turn may hold the thread; dropping that hold would show the
+    /// thread idle while it works and leave the new turn with no Stop.
+    fn release(&self, tid: &str) {
+        let mut running = self.running.lock().unwrap();
+        let mine = tokio::task::try_id();
+        if mine.is_some() && running.get(tid).map(|h| h.id()) == mine {
+            running.remove(tid);
+        }
     }
 
     /// Mark a reply done or failed.
@@ -2370,7 +2465,7 @@ impl Chats {
                     }
                 }
             }
-            me.running.lock().unwrap().remove(&tid);
+            me.release(&tid);
             me.unread.lock().unwrap().insert(tid);
             me.poke();
         });
@@ -3728,11 +3823,31 @@ mod tests {
             (Some("haiku"), "haiku"),
             (None, "sonnet"),
         ] {
-            assert_eq!(side_route(&claude(main), None), claude(Some(side)), "main {main:?}");
+            assert_eq!(side_route(&claude(main), None, &[]), claude(Some(side)), "main {main:?}");
         }
-        assert_eq!(side_route(&claude(Some("opus")), Some("haiku")), claude(Some("haiku")), "the Settings pick wins");
-        let codex = Route { kind: RouteKind::Cli, provider: "codex".into(), model: Some("gpt-5".into()) };
-        assert_eq!(side_route(&codex, Some("sonnet")), claude(Some("sonnet")), "the Settings pick wins on any main");
+        let codex = |m: &str| Route { kind: RouteKind::Cli, provider: "codex".into(), model: Some(m.into()) };
+        assert_eq!(side_route(&claude(Some("opus")), Some(&codex("gpt-5.1-codex-mini")), &[]), codex("gpt-5.1-codex-mini"), "the Settings pick wins, on any CLI");
+    }
+
+    /// Charles, 24 Nov: "model agnostic": Auto goes one size down on every CLI it can.
+    #[test]
+    fn auto_goes_one_size_down_on_any_cli() {
+        let on = |p: &str, m: &str| Route { kind: RouteKind::Cli, provider: p.into(), model: Some(m.into()) };
+        let down = |p: &str, m: &str| smaller_model(&on(p, m), &[]);
+        assert_eq!(down("codex", "gpt-5.1-codex-max").as_deref(), Some("gpt-5.1-codex-mini"));
+        assert_eq!(down("codex", "gpt-5.1-codex").as_deref(), Some("gpt-5.1-codex-mini"));
+        assert_eq!(down("gemini", "gemini-2.5-pro").as_deref(), Some("gemini-2.5-flash"));
+        assert_eq!(down("gemini", "gemini-2.5-flash").as_deref(), Some("gemini-2.5-flash-lite"));
+        assert_eq!(down("opencode", "google/gemini-2.5-pro").as_deref(), Some("google/gemini-2.5-flash"), "the maker prefix stays");
+        assert_eq!(down("codex", "gpt-5.1-codex-mini"), None, "already the small one");
+        assert_eq!(down("grok", "grok-4"), None, "unknown naming: the main's model is kept");
+        assert_eq!(side_route(&on("grok", "grok-4"), None, &[]), on("grok", "grok-4"));
+
+        // A CLI that lists prices: the dearest cheaper model of the same maker, never another maker's.
+        let m = |id: &str, input: f64| crate::harnesses::ModelInfo { id: id.into(), input: Some(input), ..Default::default() };
+        let cat = [m("anthropic/big", 15.), m("anthropic/mid", 3.), m("anthropic/small", 1.), m("openai/cheap", 2.)];
+        assert_eq!(smaller_model(&on("opencode", "anthropic/big"), &cat).as_deref(), Some("anthropic/mid"));
+        assert_eq!(smaller_model(&on("opencode", "anthropic/small"), &cat), None, "nothing cheaper from that maker");
     }
 
     /// Charles, 24 Nov: a side stream reports back but never starts streams of its own.
@@ -3915,6 +4030,30 @@ mod tests {
         assert_eq!(c.thread(&id).unwrap().messages.len(), n);
     }
 
+    /// A goal on a stream whose turn failed used to stay on with nothing happening (only a Done
+    /// reply was ever looked at): it must stop visibly instead, and not retry the failure by itself.
+    #[test]
+    fn a_goal_whose_turn_failed_pauses_and_says_why() {
+        let dir = tmp("goal-failed");
+        let (c, _rt) = chats(&dir);
+        let id = c.create_in(route(), Scope::default()).id;
+        c.set_goal(&id, Some("Ship it"), false).unwrap();
+        c.edit_thread(&id, |t| {
+            let mut m = Msg::new(Role::Assistant, String::new(), Status::Error);
+            m.error = Some("rate limited".into());
+            t.messages.push(m);
+        })
+        .unwrap();
+        c.pump(dead_ctx());
+        let t = c.thread(&id).unwrap();
+        assert!(t.goal_paused && t.goal.is_some(), "paused, not dropped");
+        assert!(t.messages.iter().all(|m| m.role != Role::User), "the failure is not retried by itself");
+        assert!(t.messages.last().unwrap().text.contains("rate limited"), "the stream says why it stopped");
+        let n = t.messages.len();
+        c.pump(dead_ctx());
+        assert_eq!(c.thread(&id).unwrap().messages.len(), n, "said once");
+    }
+
     #[test]
     fn a_steer_for_later_waits_for_the_turn_and_one_for_now_goes_at_once() {
         let dir = tmp("steer");
@@ -3932,6 +4071,22 @@ mod tests {
         let mine: Vec<&str> = t.messages.iter().filter(|m| m.role == Role::User).map(|m| m.text.as_str()).collect();
         assert!(mine.contains(&"Plan edit: later") && mine.contains(&"Plan edit: now"), "{mine:?}");
         assert!(t.messages.iter().filter(|m| m.role == Role::User).all(|m| m.author.is_none()), "the user's own words, not a letter");
+    }
+
+    /// Stop, then send at once (steer "now"), while the stopped turn is already past its last pause:
+    /// the stopped turn ends after the new one started, and must not free the thread under it.
+    #[test]
+    fn a_stopped_turn_ending_late_leaves_the_new_turn_running() {
+        let dir = tmp("late-stop");
+        let (c, rt) = chats(&dir);
+        let id = c.create_in(route(), Scope::default()).id;
+        let new_turn = rt.spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        c.running.lock().unwrap().insert(id.clone(), new_turn.abort_handle());
+        let (c2, id2) = (c.clone(), id.clone());
+        rt.block_on(rt.spawn(async move { c2.release(&id2) })).unwrap();
+        assert!(c.is_busy(&id), "the new turn still holds the thread");
+        c.stop(&id);
+        assert!(!c.is_busy(&id));
     }
 
     #[test]

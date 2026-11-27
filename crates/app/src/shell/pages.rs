@@ -170,10 +170,10 @@ impl Cauldron {
             .flex_col()
             .gap(px(8.))
             .rounded(px(radius::PANEL))
-            .bg(c(pal.panel))
+            .bg(well_fill(false, pal, 1.0))
             .border_1()
             .border_color(c(pal.line))
-            .shadow(lift(Lift::Button, pal))
+            .shadow(lift(Lift::Well, pal))
             .child(
                 div()
                     .flex()
@@ -259,10 +259,10 @@ impl Cauldron {
                     .flex_col()
                     .gap(px(8.))
                     .rounded(px(radius::PANEL))
-                    .bg(c(pal.panel))
+                    .bg(well_fill(false, pal, 1.0))
                     .border_1()
                     .border_color(c(pal.line))
-                    .shadow(lift(Lift::Button, pal))
+                    .shadow(lift(Lift::Well, pal))
                     .cursor_pointer()
                     .hover(|d| d.bg(c(pal.hover)))
                     .aria_label(format!("{name}, {n} streams"))
@@ -415,8 +415,8 @@ impl Cauldron {
                 .items_center()
                 .gap(px(8.))
                 .rounded(px(radius::SHELL))
-                .bg(c(pal.raised))
-                .shadow(lift(Lift::Box, pal))
+                .bg(well_fill(false, pal, 1.0))
+                .shadow(lift(Lift::Well, pal))
                 .text_size(px(13.))
                 .text_color(fg3)
                 .cursor_pointer()
@@ -490,7 +490,7 @@ impl Cauldron {
                         div().id((id, i)).px(px(12.)).h(px(26.)).flex().items_center().rounded(px(radius::CONTROL)).cursor_pointer().text_size(px(12.)).aria_label(label).child(label).when_live(primary, |d| d.bg(c(pal.accent)).text_color(c(pal.on_accent))).when_live(!primary, |d| d.button_face(pal).pressed().text_color(fg2).shadow(lift(Lift::Button, pal)))
                     };
                     col = col.child(
-                        div().id(("proposal", i)).p(px(14.)).flex().items_center().gap(px(12.)).rounded(px(radius::PANEL)).bg(c(pal.panel)).border_1().border_color(c(pal.line)).shadow(lift(Lift::Button, pal)).opacity(if st == Some(false) { 0.5 } else { 1. }).aria_label(*t)
+                        div().id(("proposal", i)).p(px(14.)).flex().items_center().gap(px(12.)).rounded(px(radius::PANEL)).bg(well_fill(false, pal, 1.0)).border_1().border_color(c(pal.line)).shadow(lift(Lift::Well, pal)).opacity(if st == Some(false) { 0.5 } else { 1. }).aria_label(*t)
                             .child(div().w(px(52.)).flex_none().text_size(px(11.)).font_weight(FontWeight::MEDIUM).text_color(fg3).child(*kind))
                             .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(fg).child(*t)).child(div().text_size(px(12.)).text_color(fg3).child(*why)))
                             .child(match st {
@@ -557,7 +557,7 @@ impl Cauldron {
                     );
                 }
                 div().mt(px(14.)).flex().gap(px(14.)).child(canvas_box.test_support()).child(
-                    div().id("note-panel").w(px(220.)).flex_none().p(px(14.)).flex().flex_col().gap(px(6.)).rounded(px(radius::PANEL)).bg(c(pal.panel)).border_1().border_color(c(pal.line)).shadow(lift(Lift::Button, pal)).aria_label(NOTES[sel].0)
+                    div().id("note-panel").w(px(220.)).flex_none().p(px(14.)).flex().flex_col().gap(px(6.)).rounded(px(radius::PANEL)).bg(well_fill(false, pal, 1.0)).border_1().border_color(c(pal.line)).shadow(lift(Lift::Well, pal)).aria_label(NOTES[sel].0)
                         .child(div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(NOTES[sel].0))
                         .child(div().text_size(px(12.)).line_height(px(17.)).text_color(fg2).child(NOTES[sel].1))
                         .child(div().mt(px(6.)).text_size(px(11.)).text_color(fg3).child(format!("{} links", EDGES.iter().filter(|e| e.0 == sel || e.1 == sel).count())))
