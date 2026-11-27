@@ -125,14 +125,72 @@ fn settle(s: &str) -> String {
     s
 }
 
+/// The live edge of a paragraph being written: the clock for its caret's blink, the caret's
+/// colour, and the chunks that just arrived, each as (characters from the end where it starts,
+/// how far it has faded in, 0 to 1), newest last. Unused slots are (0, 1.0).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Tail {
+    pub now: u64,
+    pub caret: Hsla,
+    pub fade: [(u32, f32); 6],
+}
+
+/// Byte ranges of `text` and how opaque each is, from `fade` (see `Tail`). A character belongs to
+/// the newest chunk that reaches back to it.
+fn fades(text: &str, fade: &[(u32, f32)]) -> Vec<(Range<usize>, f32)> {
+    let idx: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    let n = idx.len();
+    let mut out = Vec::new();
+    // Oldest (reaching furthest back) first, so a newer chunk overrides from where it starts.
+    let mut fs: Vec<(u32, f32)> = fade.iter().copied().filter(|(d, a)| *d > 0 && *a < 0.999).collect();
+    fs.sort_by(|a, b| b.0.cmp(&a.0));
+    for (k, (d, a)) in fs.iter().enumerate() {
+        let from = n.saturating_sub(*d as usize);
+        let to = fs.get(k + 1).map_or(n, |nx| n.saturating_sub(nx.0 as usize));
+        if from < to {
+            let end = idx.get(to).copied().unwrap_or(text.len());
+            out.push((idx[from]..end, a.clamp(0.0, 1.0)));
+        }
+    }
+    out
+}
+
+/// `hl` with the fades laid over it: runs are cut where either changes, and a fading run keeps its
+/// own style with its colour (or the ink) made see-through.
+fn overlay(hl: Vec<(Range<usize>, HighlightStyle)>, fades: Vec<(Range<usize>, f32)>, ink: Hsla) -> Vec<(Range<usize>, HighlightStyle)> {
+    if fades.is_empty() {
+        return hl;
+    }
+    let mut cuts: Vec<usize> = hl.iter().flat_map(|(r, _)| [r.start, r.end]).chain(fades.iter().flat_map(|(r, _)| [r.start, r.end])).collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut out = Vec::new();
+    for w in cuts.windows(2) {
+        let seg = w[0]..w[1];
+        let base = hl.iter().find(|(r, _)| r.start <= seg.start && seg.end <= r.end).map(|(_, s)| *s);
+        let fade = fades.iter().find(|(r, _)| r.start <= seg.start && seg.end <= r.end).map(|(_, a)| *a);
+        match (base, fade) {
+            (None, None) => {}
+            (Some(b), None) => out.push((seg, b)),
+            (b, Some(a)) => {
+                let mut st = b.unwrap_or_default();
+                st.color = Some(st.color.unwrap_or(ink).opacity(a));
+                st.background_color = st.background_color.map(|bg| bg.opacity(a));
+                out.push((seg, st));
+            }
+        }
+    }
+    out
+}
+
 /// A line drawn, with its links: URLs, and code spans naming a file in `dir`.
-fn styled(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (StyledText, Vec<(Range<usize>, super::links::Link)>) {
+fn styled(s: &str, tail: Option<Tail>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (StyledText, Vec<(Range<usize>, super::links::Link)>) {
     let (text, hl, links) = styled_parts(s, tail, dir, pal);
     (StyledText::new(text).with_highlights(hl), links)
 }
 
 /// `styled` before it becomes a `StyledText`: the shown text, its runs and its links.
-fn styled_parts(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (String, Vec<(Range<usize>, HighlightStyle)>, Vec<(Range<usize>, super::links::Link)>) {
+fn styled_parts(s: &str, tail: Option<Tail>, dir: Option<&std::path::Path>, pal: &'static Palette) -> (String, Vec<(Range<usize>, HighlightStyle)>, Vec<(Range<usize>, super::links::Link)>) {
     let (mut text, spans) = inline(&if tail.is_some() { settle(s) } else { s.to_string() });
     let code: Vec<Range<usize>> = spans.iter().filter(|(_, c)| *c).map(|(r, _)| r.clone()).collect();
     let links = super::links::find(&text, &code, dir);
@@ -154,8 +212,12 @@ fn styled_parts(s: &str, tail: Option<(u64, Hsla)>, dir: Option<&std::path::Path
         hl.push((r.clone(), HighlightStyle { color: Some(c(pal.accent)), background_color: file.then(|| c(pal.inset)), underline: Some(gpui::UnderlineStyle { thickness: px(1.), color: Some(ca(pal.accent, 0.4)), wavy: false }), ..Default::default() }));
     }
     hl.sort_by_key(|(r, _)| r.start);
+    // The words that just came in fade up from nothing (Charles, 27 Nov).
+    if let Some(t) = tail {
+        hl = overlay(hl, fades(&text, &t.fade), c(pal.fg));
+    }
     // The live edge: a caret in the accent that blinks.
-    if let Some((now, accent)) = tail {
+    if let Some(Tail { now, caret: accent, .. }) = tail {
         let at = text.len();
         text.push('\u{258d}');
         hl.push((at..text.len(), HighlightStyle { color: Some(accent.opacity(if (now / 530) % 2 == 0 { 1.0 } else { 0.0 })), ..Default::default() }));
@@ -167,22 +229,22 @@ impl Cauldron {
     /// `text` as blocks. `key` names it for ids; `tail` puts the live caret after the last block.
     /// A reply in the transcript: each block gets the hover bar (`block_bar`) of the message
     /// written at `at`.
-    pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, at: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn md_el(&self, text: &str, key: &str, tail: Option<Tail>, at: u64, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         self.md_inner(text, key, tail, (14., 22.), Some(at), pal, cx)
     }
 
     /// `md_el` at another text size and line height, for the smaller panes (a familiar's plan,
     /// a subagent's ticket and notes).
-    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, size: (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn md_sized(&self, text: &str, key: &str, tail: Option<Tail>, size: (f32, f32), pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         self.md_inner(text, key, tail, size, None, pal, cx)
     }
 
-    fn md_inner(&self, text: &str, key: &str, tail: Option<(u64, Hsla)>, (size, line): (f32, f32), bar_at: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn md_inner(&self, text: &str, key: &str, tail: Option<Tail>, (size, line): (f32, f32), bar_at: Option<u64>, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
         let (fg, fg3) = (c(pal.fg), c(pal.fg3));
         let dir = self.thread.as_ref().and_then(|t| t.project.clone()).map(std::path::PathBuf::from);
         // A line with links: a click opens one in the card, a right click offers where.
         let selectable = bar_at.is_some();
-        let link_line = |s: &str, t: Option<(u64, Hsla)>, n: usize, cx: &mut Context<Self>| -> AnyElement {
+        let link_line = |s: &str, t: Option<Tail>, n: usize, cx: &mut Context<Self>| -> AnyElement {
             // A finished reply line with no link can be selected (links keep their clicks).
             if selectable && t.is_none() {
                 let (text, hl, links) = styled_parts(s, None, dir.as_deref(), pal);
