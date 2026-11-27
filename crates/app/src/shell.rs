@@ -1520,6 +1520,14 @@ impl Cauldron {
     /// own button folds the card (its tabs stay).
     fn toggle_panel(&mut self, p: Panel) {
         let was = self.drawer;
+        // The floating look keeps one card per open panel: the rail button adds the card or takes it away.
+        if self.look_float && was.is_some() && self.support_tabs.contains(&p) {
+            self.close_support_tab(p);
+            if self.drawer.is_none() {
+                self.drawer_last = Some(p);
+            }
+            return;
+        }
         if was == Some(p) {
             self.drawer = None;
             self.drawer_last = Some(p);
@@ -2807,7 +2815,14 @@ impl Render for Cauldron {
         // under "+N") and a + menu; the rail sits inside its right edge.
         if let (Some(dp), Some(p)) = (s.support, self.drawer.or(self.drawer_last)) {
             let r = dp.rect;
+            let under = self.glass_under("support", r, (w, h), dark, pal, moving, window);
+            let glass = under.is_some();
             self.load_panel(p, cx);
+            if self.look_float {
+                for q in self.support_tabs.clone() {
+                    self.load_panel(q, cx);
+                }
+            }
             // A panel's body: absolute so two bodies can cross-fade in the same place.
             let body = |this: &Self, p: Panel, a: f32, cx: &mut Context<Self>| div().absolute().inset_0().opacity(a).child(this.support_body(p, pal, window, cx));
             let mut shead = div()
@@ -2822,8 +2837,9 @@ impl Render for Cauldron {
                 .window_control_area(WindowControlArea::Drag);
             // The open tab stays in view: when it is past the first three it takes the third place.
             let open_at = self.support_tabs.iter().position(|q| Some(*q) == self.drawer);
-            let mut shown: Vec<Panel> = self.support_tabs.iter().copied().take(SUPPORT_TABS_SHOWN).collect();
-            if let Some(i) = open_at.filter(|i| *i >= SUPPORT_TABS_SHOWN) {
+            // The floating look shows every open panel as a card, so the header carries no tabs.
+            let mut shown: Vec<Panel> = if self.look_float { Vec::new() } else { self.support_tabs.iter().copied().take(SUPPORT_TABS_SHOWN).collect() };
+            if let Some(i) = open_at.filter(|i| !self.look_float && *i >= SUPPORT_TABS_SHOWN) {
                 shown[SUPPORT_TABS_SHOWN - 1] = self.support_tabs[i];
             }
             for q in shown.iter().copied() {
@@ -2884,7 +2900,7 @@ impl Render for Cauldron {
                         .test_support(),
                 );
             }
-            let hidden: Vec<Panel> = self.support_tabs.iter().copied().filter(|q| !shown.contains(q)).collect();
+            let hidden: Vec<Panel> = self.support_tabs.iter().copied().filter(|q| !self.look_float && !shown.contains(q)).collect();
             if let Some(next) = hidden.first().copied() {
                 let label: SharedString = format!("+{}", hidden.len()).into();
                 shead = shead.child(
@@ -2909,6 +2925,9 @@ impl Render for Cauldron {
                         }))
                         .test_support(),
                 );
+            }
+            if self.look_float {
+                shead = shead.child(div().flex_1().pl(px(4.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(fg3).child("Cards"));
             }
             let mut add = div()
                 .id("support-add")
@@ -2996,17 +3015,53 @@ impl Render for Cauldron {
             if let Some((a, k)) = swap {
                 bodies = bodies.child(body(self, a, 1.0 - k, cx));
             }
-            let under = self.glass_under("support", r, (w, h), dark, pal, moving, window);
-            let glass = under.is_some();
             let d = if self.look_float {
                 // The floating look: the header is a card of its own and the body below it is
                 // separate cards on the frame (Highlights) or one card (the other panels).
                 let face = || div().rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal));
-                let cards = if p == Panel::Highlights { self.floating_highlights(pal) } else { None };
-                let below = match cards {
-                    Some(cards) => div().relative().w(px(r.w - metric::RAIL_W - metric::GAP)).flex_1().min_h_0().child(cards).into_any_element(),
-                    None => face().overflow_hidden().relative().w(px(r.w - metric::RAIL_W - metric::GAP)).flex_1().min_h_0().child(bodies).into_any_element(),
-                };
+                let mut stack = div().relative().w(px(r.w - metric::RAIL_W - metric::GAP)).flex_1().min_h_0().flex().flex_col().gap(px(12.));
+                for (i, q) in self.support_tabs.clone().into_iter().enumerate() {
+                    if q == Panel::Highlights {
+                        if let Some(cards) = self.floating_highlights(pal) {
+                            stack = stack.child(cards);
+                            continue;
+                        }
+                    }
+                    let head = div()
+                        .id(("fc-head", i))
+                        .h(px(34.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .pl(px(12.))
+                        .pr(px(6.))
+                        .border_b_1()
+                        .border_color(c(pal.line))
+                        .child(glyph(q.icon(), 13., fg3))
+                        .child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(q.title()))
+                        .child(
+                            div()
+                                .id(("fc-close", i))
+                                .size(px(22.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(radius::TAG))
+                                .cursor_pointer()
+                                .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                                .aria_label(format!("Close {}", q.title()))
+                                .child(glyph("x", 12., fg3))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.close_support_tab(q);
+                                    cx.notify();
+                                }))
+                                .test_support(),
+                        );
+                    stack = stack.child(face().flex().flex_col().flex_1().min_h(px(120.)).overflow_hidden().child(head).child(div().relative().flex_1().min_h_0().child(body(self, q, 1.0, cx))));
+                }
+                let below = stack.into_any_element();
                 pane("support", r).opacity(dp.alpha).flex().flex_col().gap(px(12.)).child(face().child(shead.test_support())).child(below)
             } else {
                 pane("support", r)
@@ -3051,8 +3106,8 @@ impl Render for Cauldron {
         if self.rail_on(s.support.is_some()) {
             let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
                 // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
-                let has_tab = this.drawer == Some(p);
-                this.tipped(id, icon_button(id, p.icon(), p.title(), pal, this.drawer == Some(p)), p.title(), Side::Left, pal, cx)
+                let has_tab = if this.look_float { this.drawer.is_some() && this.support_tabs.contains(&p) } else { this.drawer == Some(p) };
+                this.tipped(id, icon_button(id, p.icon(), p.title(), pal, has_tab), p.title(), Side::Left, pal, cx)
                     .when_live(has_tab, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_panel(p);

@@ -325,7 +325,7 @@ impl Cauldron {
             .child(div().h(px(1.)).my(px(6.)).bg(c(pal.line)))
             .child(div().flex().px(px(6.)).pb(px(4.)).child(stat("fl-asks", asks.to_string(), "Messages")).child(stat("fl-replies", replies.to_string(), "Responses")).child(stat("fl-cost", format!("${:.2}", super::thread::cost(t)), "Cost")))
             .test_support();
-        let mut col = div().id("float-cards").size_full().flex().flex_col().gap(px(12.)).child(context);
+        let mut col = div().id("float-cards").flex_none().flex().flex_col().gap(px(12.)).child(context);
         if !self.sides.is_empty() {
             let mut sides = card().id("float-sides").child(div().px(px(6.)).pb(px(4.)).text_size(px(10.5)).text_color(fg3).child("SIDE STREAMS"));
             for (i, (_, title)) in self.sides.iter().enumerate() {
