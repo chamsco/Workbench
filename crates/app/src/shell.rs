@@ -763,7 +763,7 @@ impl Cauldron {
             }
         }
         // The floating look: the stream sits on the frame's own painting, so no glass card under it.
-        if !self.painting || (id == "main" && self.look_float) {
+        if !self.painting || (id == "main" && self.look_float && self.settings.is_none() && self.familiar.is_none() && !self.paged()) {
             return None;
         }
         let mut stale = Vec::new();
@@ -2715,8 +2715,8 @@ impl Render for Cauldron {
                 let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none() && !self.paged(), new_screen, dark, moving, window, cx) };
 
                 let glass = under.is_some();
-                // The floating look: the stream sits straight on the background, no card behind it.
-                let bare = self.look_float && !split;
+                // The floating look: a stream sits straight on the background, no card behind it; Settings and the other pages keep theirs.
+                let bare = self.look_float && !split && self.settings.is_none() && self.familiar.is_none() && !self.paged();
                 div()
                     .id("card")
                     .size_full()
