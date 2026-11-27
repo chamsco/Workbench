@@ -2773,7 +2773,13 @@ impl Render for Cauldron {
             None => self.card_body(pal, window, cx),
         };
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
-        let mut card_el = pane("main", s.main)
+        // The floating look: the support cards sit on the stream's own card, so it runs under them
+        // (Charles, 27 Nov) while its content keeps the width it had beside them.
+        let card_r = match s.support {
+            Some(dp) if self.look_float => Rect::new(s.main.x, s.main.y, (dp.rect.right() - s.main.x).max(s.main.w), s.main.h),
+            _ => s.main,
+        };
+        let mut card_el = pane("main", card_r)
             // The hover indent sits over this card's left edge: any move over the card itself means
             // the pointer left the band, even in one jump.
             .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
@@ -2788,8 +2794,8 @@ impl Render for Cauldron {
                 let cut = false;
                 // Split panes are cards of their own on the frame, like the support card (Charles,
                 // 21 Nov 05:10Z): the host card paints nothing under them.
-                let under = if split { None } else { self.glass_under("main", s.main, (w, h), dark, pal, moving, window) };
-                let plane = if split { None } else { self.plane_under(s.main, under.is_none() && self.settings.is_none() && self.familiar.is_none() && !self.paged(), new_screen, dark, moving, window, cx) };
+                let under = if split { None } else { self.glass_under("main", card_r, (w, h), dark, pal, moving, window) };
+                let plane = if split { None } else { self.plane_under(card_r, under.is_none() && self.settings.is_none() && self.familiar.is_none() && !self.paged(), new_screen, dark, moving, window, cx) };
 
                 let glass = under.is_some();
                 div()
