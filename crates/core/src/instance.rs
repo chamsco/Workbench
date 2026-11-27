@@ -99,7 +99,7 @@ pub fn claim() -> Option<Instance> {
         // Skipped after a self-update (the old copy is still quitting) and with a custom data
         // folder (a dev run beside the installed app).
         Ok(Some(_)) if !restarted && std::env::var_os("BACKSPACE_DATA").is_none() && legacy_copy_running() => {
-            eprintln!("{} is already running (an older copy that cannot be asked to come forward); quit it and start again.", channel().app_name());
+            tell_user(&format!("{} is already running as an older copy that cannot be asked to come forward. Quit it, then start again.", channel().app_name()));
             None
         }
         Ok(Some(i)) => {
@@ -208,6 +208,19 @@ fn running_exes() -> Vec<(u32, String, Option<String>)> {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn running_exes() -> Vec<(u32, String, Option<String>)> {
     Vec::new() // Windows already sees an old copy through the mutex it always held.
+}
+
+/// A GUI launch has no terminal, so the refusal goes to the log and, where the OS has a plain way,
+/// to a dialog or notification.
+fn tell_user(msg: &str) {
+    eprintln!("{msg}");
+    crate::crash::note(msg);
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("osascript")
+        .args(["-e", &format!("display alert \"{}\"", msg.replace('"', "'"))])
+        .status();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("notify-send").args([channel().app_name(), msg]).status();
 }
 
 fn unlocked(dir: &Path) -> Instance {
