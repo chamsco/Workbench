@@ -31,6 +31,9 @@ pub(crate) enum Kind {
     Horizon,
     /// Rings rolling outward (a working stream, from Settings).
     Ripple,
+    /// Halftone clouds: dots that swell and shrink with a noise field, clear down the middle where
+    /// the text sits (the dark background, Charles 27 Nov, after the mockup).
+    Clouds,
 }
 
 /// Which plane the main card shows, if any.
@@ -102,7 +105,68 @@ pub(crate) fn field(kind: Kind, x: f32, y: f32, w: f32, h: f32, t: Option<f32>) 
         }
         Kind::Horizon => swell(sample() * ((y - h * 0.55) / (h * 0.3)).clamp(0.0, 1.0)),
         Kind::Ripple => ring(x, y, w, h, t.unwrap_or(1.3)) * 0.55,
+        Kind::Clouds => 0.0,
     }
+}
+
+
+/// Value noise in 0..1 at a lattice point.
+fn lattice(i: f64, j: f64) -> f64 {
+    let s = (i * 127.1 + j * 311.7).sin() * 43758.5453;
+    s - s.floor()
+}
+
+fn noise(u: f64, v: f64) -> f64 {
+    let (i, j) = (u.floor(), v.floor());
+    let (fu, fv) = (u - i, v - j);
+    let (a, b, c, d) = (lattice(i, j), lattice(i + 1.0, j), lattice(i, j + 1.0), lattice(i + 1.0, j + 1.0));
+    let (su, sv) = (fu * fu * (3.0 - 2.0 * fu), fv * fv * (3.0 - 2.0 * fv));
+    a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv
+}
+
+fn fbm(mut u: f64, mut v: f64) -> f64 {
+    let (mut s, mut a) = (0.0, 0.5);
+    for _ in 0..4 {
+        s += a * noise(u, v);
+        u *= 2.0;
+        v *= 2.0;
+        a *= 0.5;
+    }
+    s
+}
+
+/// The halftone clouds: a 6-point grid, a square dot in each cell sized and lit by the noise, and
+/// none within a band down the middle so the text stays readable. `t` drifts the clouds slowly.
+fn render_clouds(w: f32, h: f32, scale: f32, dark: bool, t: Option<f32>) -> RgbaImage {
+    const G: f32 = 6.0;
+    let (pw, ph) = ((w * scale).ceil().max(1.0) as u32, (h * scale).ceil().max(1.0) as u32);
+    let mut img = RgbaImage::new(pw, ph);
+    let ink = if dark { [200u8, 202, 220] } else { [20u8, 22, 40] };
+    let drift = t.map_or(0.0, |t| f64::from(t) * 0.03);
+    let (cols, rows) = ((w / G).ceil() as i32, (h / G).ceil() as i32);
+    for gy in 0..rows {
+        for gx in 0..cols {
+            let (x, y) = (gx as f32 * G, gy as f32 * G);
+            let n = fbm(f64::from(x / (w * 0.18)) + drift, f64::from(y / (h * 0.22)));
+            let away = (f64::from(x / w) - 0.5).abs() * 2.0;
+            let edge = ((away - 0.5) * 2.6).clamp(0.0, 1.0);
+            let v = (n - 0.42) * 2.6 * edge;
+            if v <= 0.05 {
+                continue;
+            }
+            let half = (v.min(1.0) as f32) * G * 0.36;
+            let a = ((0.18 + (v * 0.5).min(0.5)) * 255.0) as u8;
+            let (cx, cy) = (x + G / 2.0, y + G / 2.0);
+            let (x0, x1) = (((cx - half) * scale).floor().max(0.0) as u32, (((cx + half) * scale).ceil() as u32).min(pw));
+            let (y0, y1) = (((cy - half) * scale).floor().max(0.0) as u32, (((cy + half) * scale).ceil() as u32).min(ph));
+            for py in y0..y1 {
+                for px in x0..x1 {
+                    img.put_pixel(px, py, Rgba([ink[0], ink[1], ink[2], a]));
+                }
+            }
+        }
+    }
+    img
 }
 
 /// One plane: `w`×`h` logical points drawn at `scale` pixels each, so a dot is one point and
@@ -115,6 +179,9 @@ pub(crate) fn render(
     dark: bool,
     t: Option<f32>,
 ) -> RgbaImage {
+    if kind == Kind::Clouds {
+        return render_clouds(w, h, scale, dark, t);
+    }
     let (pw, ph) = (
         (w * scale).ceil().max(1.0) as u32,
         (h * scale).ceil().max(1.0) as u32,
