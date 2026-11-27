@@ -290,6 +290,52 @@ impl Cauldron {
         }
     }
 
+    /// The floating look's Highlights: separate cards on the frame, not one card (Charles, 27 Nov,
+    /// after the mockup): the stream's context (machine, folder, route, counts) and, when the stream
+    /// has side streams, a card for them. None when no stream is open.
+    pub(super) fn floating_highlights(&self, pal: &'static Palette) -> Option<AnyElement> {
+        let t = self.thread.as_ref()?;
+        let (fg, fg2, fg3) = (c(pal.fg), c(pal.fg2), c(pal.fg3));
+        let card = || div().flex().flex_col().p(px(10.)).rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal));
+        let row = |id: &'static str, icon: &'static str, label: String, tail: Option<String>| {
+            div()
+                .id(id)
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(6.))
+                .text_color(fg)
+                .child(glyph(icon, 14., fg3))
+                .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                .when_some(tail, |d, t| d.child(div().flex_none().text_size(px(11.5)).text_color(fg3).child(t)))
+                .aria_label(label)
+                .test_support()
+        };
+        let ls = super::thread::lines(t);
+        let replies = ls.iter().filter(|l| !l.mine).count();
+        let asks = ls.len() - replies;
+        let folder = t.project.as_deref().map(|d| Path::new(d).file_name().map_or_else(|| d.to_string(), |n| n.to_string_lossy().to_string())).unwrap_or_else(|| "No folder".into());
+        let stat = |id: &'static str, n: String, label: &'static str| div().id(id).flex_1().flex().flex_col().aria_label(format!("{label}: {n}")).child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).font_features(tnum()).text_color(fg).child(n)).child(div().text_size(px(11.5)).text_color(fg3).child(label)).test_support();
+        let context = card()
+            .id("float-context")
+            .child(row("fl-machine", "laptop", "This machine".into(), Some("online".into())))
+            .child(row("fl-folder", "folder-open", folder, None))
+            .child(row("fl-route", "message-square", format!("Answered by {}", t.route.provider), None))
+            .child(div().h(px(1.)).my(px(6.)).bg(c(pal.line)))
+            .child(div().flex().px(px(6.)).pb(px(4.)).child(stat("fl-asks", asks.to_string(), "Messages")).child(stat("fl-replies", replies.to_string(), "Responses")).child(stat("fl-cost", format!("${:.2}", super::thread::cost(t)), "Cost")))
+            .test_support();
+        let mut col = div().id("float-cards").size_full().flex().flex_col().gap(px(12.)).child(context);
+        if !self.sides.is_empty() {
+            let mut sides = card().id("float-sides").child(div().px(px(6.)).pb(px(4.)).text_size(px(10.5)).text_color(fg3).child("SIDE STREAMS"));
+            for (i, (_, title)) in self.sides.iter().enumerate() {
+                sides = sides.child(div().id(("fl-side", i)).h(px(28.)).flex().items_center().gap(px(10.)).px(px(6.)).text_color(fg2).child(glyph("corner-down-right", 13., fg3)).child(div().flex_1().min_w_0().truncate().child(title.clone())));
+            }
+            col = col.child(sides.test_support());
+        }
+        Some(col.into_any_element())
+    }
+
     /// The support card's body for `p`: the panel's content, its loading, empty or error state,
     /// or, for a panel with no source yet, a marked placeholder.
     pub(super) fn support_body(&self, p: Panel, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
