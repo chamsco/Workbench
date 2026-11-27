@@ -278,7 +278,7 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
             }
         }
         helpers.sort_by_key(|h| h.at);
-        helpers.truncate(6);
+        helpers.drain(..helpers.len().saturating_sub(6));
         let mut hy = y0;
         let mut helper_ix = Vec::new();
         for mut h in helpers {
