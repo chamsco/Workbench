@@ -33,6 +33,7 @@ mod donecard;
 mod boardview;
 mod canvasmodel;
 mod canvasview;
+mod orbs;
 mod imageview;
 mod flowview;
 mod chipmenu;

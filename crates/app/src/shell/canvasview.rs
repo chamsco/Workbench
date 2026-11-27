@@ -507,9 +507,22 @@ impl Cauldron {
         let (top, bot, edge) = silver(pal);
         let p = &f.pill;
         let text = if p.live { super::ledger::shimmer(&p.text, now, fg3, fg, false).into_any_element() } else { div().child(p.text.clone()).into_any_element() };
-        // The orb: a ring that turns while it works.
-        let turn = (now % 1400) as f32 / 1400.;
-        let orb = div().size(px(18.)).flex_none().flex().items_center().justify_center().rounded_full().bg(c(pal.accent_soft)).child(glyph(if p.live { "loader" } else { "bot" }, 11., c(pal.accent)).with_transformation(Transformation::rotate(radians(if p.live { turn * std::f32::consts::TAU } else { 0. }))));
+        // The orb: Thinking Orbs, one state per kind of work.
+        let low = p.text.to_lowercase();
+        let kind = if low.contains("question") || low.contains("waiting") {
+            super::orbs::Orb::Listening
+        } else if low.contains("plan") {
+            super::orbs::Orb::Shaping
+        } else if low.contains("writ") || low.contains("repl") {
+            super::orbs::Orb::Composing
+        } else if low.contains("read") || low.contains("search") || low.contains("fetch") || low.contains("look") {
+            super::orbs::Orb::Searching
+        } else if low.contains("run") || low.contains("chang") || low.contains("edit") || low.contains("work") {
+            super::orbs::Orb::Solving
+        } else {
+            super::orbs::Orb::Working
+        };
+        let orb = div().size(px(22.)).flex_none().child(super::orbs::orb(kind, 22., now, !p.live, pal.panel.0 < 0x80));
         let mut pill = div()
             .id("canvas-pill")
             .flex()
