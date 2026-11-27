@@ -278,7 +278,20 @@ pub(crate) fn build(t: &Thread, sides: &[Thread], busy: bool, files: &dyn Fn(&st
             }
         }
         helpers.sort_by_key(|h| h.at);
-        helpers.drain(..helpers.len().saturating_sub(6));
+        // Keep six: the ones still working first, then the newest, back in time order.
+        if helpers.len() > 6 {
+            let mut keep: Vec<bool> = helpers.iter().map(|h| h.live == Live::Working).collect();
+            let mut room = 6usize.saturating_sub(keep.iter().filter(|k| **k).count());
+            for k in keep.iter_mut().rev() {
+                if !*k && room > 0 {
+                    *k = true;
+                    room -= 1;
+                }
+            }
+            let mut k = keep.into_iter();
+            helpers.retain(|_| k.next().unwrap_or(false));
+            helpers.truncate(6);
+        }
         let mut hy = y0;
         let mut helper_ix = Vec::new();
         for mut h in helpers {
