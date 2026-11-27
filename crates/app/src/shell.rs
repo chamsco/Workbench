@@ -1786,6 +1786,64 @@ impl Cauldron {
         }
     }
 
+    /// The quick-button rail: Highlights, Changes, Git, Trace, a rule, Browser, Files, Simulator,
+    /// Terminal and the fold toggle. Kept out of `render` so that function's stack frame stays small.
+    #[inline(never)]
+    fn rail_card(&self, rail: Rect, pal: &'static Palette, accent: Hsla, cx: &mut Context<Self>) -> AnyElement {
+        let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
+            // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
+            let has_tab = if this.look_float { this.drawer.is_some() && this.support_tabs.contains(&p) } else { this.drawer == Some(p) };
+            this.tipped(id, icon_button(id, p.icon(), p.title(), pal, has_tab), p.title(), Side::Left, pal, cx)
+                .when_live(this.look_float, |d| d.border_1().border_color(if has_tab { c(pal.line_strong) } else { c(pal.line) }).rounded(px(radius::CONTROL)).bg(ca(pal.fg, if has_tab { 0.16 } else { 0.06 })))
+                .when_live(has_tab && !this.look_float, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_panel(p);
+                    cx.notify();
+                }))
+                .test_support()
+        };
+        // The floating look lifts the rail into a card of its own, so the buttons read against the stream.
+        let mut rr = if self.look_float {
+            div().id("rail-card").flex().flex_col().items_center().gap(px(4.)).py(px(6.)).w(px(metric::RAIL_W - 8.)).rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal))
+        } else {
+            pane("rail", rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line))
+        };
+        // The fold toggle sits at the top of the rail, right under the window buttons (Charles,
+        // 22 Nov), and takes the accent while the pane is open so it is easy to find.
+        let open_now = self.drawer.is_some();
+        let fold = if open_now { "Hide support" } else { "Show support" };
+        rr = rr.child(
+            self.tipped("rb-fold", fold_button("rb-fold", fold, pal, open_now), fold, Side::Left, pal, cx)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.fold_support();
+                    cx.notify();
+                }))
+                .test_support(),
+        );
+        rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
+        for (i, p) in RAIL_TOP.iter().enumerate() {
+            rr = rr.child(rail_button(self, ("rb", i), *p, cx));
+        }
+        rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
+        for (i, p) in RAIL_MID.iter().enumerate() {
+            rr = rr.child(rail_button(self, ("rb", RAIL_TOP.len() + i), *p, cx));
+        }
+        rr = rr.child(
+            self.tipped("rb-term", icon_button("rb-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Left, pal, cx)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.terminal = !this.terminal;
+                    this.term_scroll.scroll_to_bottom();
+                    cx.notify();
+                }))
+                .test_support(),
+        );
+        if self.look_float {
+            pane("rail", rail).flex().flex_col().items_center().pt(px(6.)).child(rr.test_support()).test_support().into_any_element()
+        } else {
+            rr.test_support().into_any_element()
+        }
+    }
+
     /// The floating look's support column: one card per open panel (Charles, 27 Nov). Kept out of
     /// `render` so that function's stack frame does not grow.
     #[inline(never)]
@@ -3143,58 +3201,7 @@ impl Render for Cauldron {
         // Highlights, Changes, Git, Trace, a rule, Browser, Files, Simulator, Terminal; the fold
         // toggle at the bottom. A short accent mark shows a panel that has a tab.
         if self.rail_on(s.support.is_some()) {
-            let rail_button = |this: &Self, id: (&'static str, usize), p: Panel, cx: &mut Context<Self>| {
-                // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
-                let has_tab = if this.look_float { this.drawer.is_some() && this.support_tabs.contains(&p) } else { this.drawer == Some(p) };
-                this.tipped(id, icon_button(id, p.icon(), p.title(), pal, has_tab), p.title(), Side::Left, pal, cx)
-                    .when_live(this.look_float, |d| d.border_1().border_color(if has_tab { c(pal.line_strong) } else { c(pal.line) }).rounded(px(radius::CONTROL)).bg(ca(pal.fg, if has_tab { 0.16 } else { 0.06 })))
-                    .when_live(has_tab && !this.look_float, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_panel(p);
-                        cx.notify();
-                    }))
-                    .test_support()
-            };
-            // The floating look lifts the rail into a card of its own, so the buttons read against the stream.
-            let mut rr = if self.look_float {
-                div().id("rail-card").flex().flex_col().items_center().gap(px(4.)).py(px(6.)).w(px(metric::RAIL_W - 8.)).rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal))
-            } else {
-                pane("rail", s.rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line))
-            };
-            // The fold toggle sits at the top of the rail, right under the window buttons (Charles,
-            // 22 Nov), and takes the accent while the pane is open so it is easy to find.
-            let open_now = self.drawer.is_some();
-            let fold = if open_now { "Hide support" } else { "Show support" };
-            rr = rr.child(
-                self.tipped("rb-fold", fold_button("rb-fold", fold, pal, open_now), fold, Side::Left, pal, cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.fold_support();
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-            rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
-            for (i, p) in RAIL_TOP.iter().enumerate() {
-                rr = rr.child(rail_button(self, ("rb", i), *p, cx));
-            }
-            rr = rr.child(div().w(px(20.)).h(px(1.)).my(px(4.)).bg(c(pal.line)));
-            for (i, p) in RAIL_MID.iter().enumerate() {
-                rr = rr.child(rail_button(self, ("rb", RAIL_TOP.len() + i), *p, cx));
-            }
-            rr = rr.child(
-                self.tipped("rb-term", icon_button("rb-term", "terminal", "Terminal", pal, self.terminal), "Terminal", Side::Left, pal, cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.terminal = !this.terminal;
-                        this.term_scroll.scroll_to_bottom();
-                        cx.notify();
-                    }))
-                    .test_support(),
-            );
-            if self.look_float {
-                root = root.child(pane("rail", s.rail).flex().flex_col().items_center().pt(px(6.)).child(rr.test_support()).test_support());
-            } else {
-                root = root.child(rr.test_support());
-            }
+            root = root.child(self.rail_card(s.rail, pal, accent, cx));
         }
 
         // ---- Windows: the top strip across the window (Charles, 20 Nov, option B). A drag area,
