@@ -762,7 +762,8 @@ impl Cauldron {
                 return Some(layers);
             }
         }
-        if !self.painting {
+        // The floating look: the stream sits on the frame's own painting, so no glass card under it.
+        if !self.painting || (id == "main" && self.look_float) {
             return None;
         }
         let mut stale = Vec::new();
