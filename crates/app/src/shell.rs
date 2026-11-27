@@ -2903,7 +2903,8 @@ impl Render for Cauldron {
                     .test_support()
             });
         if new_screen {
-            card_el = card_el.child(self.stage_bar(1.0 + metric::HEAD_H + tools_band + body_h, body_w, fg3));
+            // The bar sits at the card's content origin, which the floating sidebar moves right.
+            card_el = card_el.child(div().absolute().left(px(card_dx)).top_0().size_full().child(self.stage_bar(1.0 + metric::HEAD_H + tools_band + body_h, body_w, fg3)));
         }
         root = root.child(card_el.test_support());
         root = root.children(after_main);
