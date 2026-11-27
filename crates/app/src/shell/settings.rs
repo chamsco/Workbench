@@ -654,7 +654,10 @@ impl Cauldron {
                 cx.notify();
             }))
             .test_support();
-        col = col.child(row(("agent", 4), "Side streams".into(), "The model a main stream's side streams always run on. Auto is one tier below the main's model.".into(), self.side_model_chip(value(side_model_label(&p)), cx).into_any_element()));
+        col = col.child(row(("agent", 4), "Side streams".into(), "What a main stream's side streams always run on, from any CLI. Auto goes one size down on the main's own CLI.".into(), self.side_model_controls(&p, pal, cx).into_any_element()));
+        if self.start.route_menu == Some(subs::PickFor::Side) {
+            col = col.child(div().id("side-picker").flex_none().h(px(360.)).flex().flex_col().mt(px(6.)).rounded(px(radius::PANEL)).border_1().border_color(c(pal.line)).bg(c(pal.raised)).overflow_hidden().child(self.picker_body(subs::PickFor::Side, p.side_route.as_ref(), true, pal, cx)));
+        }
         col = col.child(row(("agent", 2), "Effort".into(), "How hard the CLI thinks before it answers.".into(), effort.into_any_element()));
         let policy = div()
             .id("set-failover")
@@ -679,31 +682,38 @@ impl Cauldron {
     }
 }
 
-/// Settings > Side streams: what a click moves to next (None = Auto, one tier below the main).
-pub const SIDE_MODELS: [Option<&str>; 4] = [None, Some("haiku"), Some("sonnet"), Some("opus")];
-
-fn side_model_label(p: &Prefs) -> String {
-    p.side_model.as_deref().filter(|m| !m.is_empty()).map_or_else(|| "Auto".into(), |m| m[..1].to_uppercase() + &m[1..])
-}
-
 impl Cauldron {
-    /// The side streams' model (Charles, 24 Nov): cycles Auto, Haiku, Sonnet, Opus.
+    /// The side streams' model (Charles, 24 Nov: model agnostic): Auto (one size down on the
+    /// main's own CLI) or any CLI's model from the same picker a stream uses.
     #[inline(never)]
-    fn side_model_chip(&self, shown: Div, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .id("set-side-model")
+    fn side_model_controls(&self, p: &Prefs, pal: &'static Palette, cx: &mut Context<Self>) -> Div {
+        let auto = p.side_route.is_none();
+        let chip = div()
+            .id("set-side-auto")
+            .h(px(28.))
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .rounded(px(radius::CONTROL))
+            .border_1()
+            .border_color(if auto { c(pal.accent) } else { c(pal.line_strong) })
+            .text_size(px(12.))
+            .text_color(c(pal.fg2))
             .cursor_pointer()
             .hover(|d| d.opacity(0.85))
-            .aria_label("Change side stream model")
-            .child(shown)
-            .on_click(cx.listener(|_, _, _, cx| {
+            .aria_label("Side streams: Auto")
+            .aria_selected(auto)
+            .child("Auto")
+            .on_click(cx.listener(|this, _, _, cx| {
                 let mut p = Prefs::load();
-                let at = SIDE_MODELS.iter().position(|m| *m == p.side_model.as_deref()).unwrap_or(0);
-                p.side_model = SIDE_MODELS[(at + 1) % SIDE_MODELS.len()].map(str::to_string);
+                p.side_route = None;
+                p.side_model = None;
                 p.save();
+                this.start.route_menu = None;
                 cx.notify();
             }))
-            .test_support()
+            .test_support();
+        div().flex().items_center().gap(px(6.)).child(chip).child(self.route_chip("set-side-model", subs::PickFor::Side, p.side_route.as_ref(), pal, cx))
     }
 }
 

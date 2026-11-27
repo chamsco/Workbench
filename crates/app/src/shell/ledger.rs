@@ -38,6 +38,26 @@ pub(super) struct Step {
     pub args: Option<String>,
     /// How many times the call was made in a row after failing: 1 unless it was retried.
     pub tries: usize,
+    /// What sort of work it was, for the Thinking / Acting summary (activity.rs): think, read,
+    /// edit, search, web, run, agent, plan or tool.
+    pub sort: &'static str,
+    /// How many calls the line stands for, once several in a row were merged.
+    pub calls: usize,
+}
+
+/// A tool's sort, as `Step::sort` names it.
+fn sort_of(name: &str) -> &'static str {
+    match canon(name) {
+        "Thinking" => "think",
+        "Read" => "read",
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => "edit",
+        "Grep" | "Glob" | "LS" => "search",
+        "WebSearch" | "WebFetch" => "web",
+        "Bash" | "PowerShell" => "run",
+        "Task" | "Agent" => "agent",
+        "TodoWrite" => "plan",
+        _ => "tool",
+    }
 }
 
 fn base(path: &str) -> String {
@@ -194,6 +214,7 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
                     prev_step.end = Some(e);
                     prev_step.args = None;
                     prev_step.start = s0;
+                    prev_step.calls = total;
                     merged = Some((k, total, s0, e));
                     continue;
                 }
@@ -206,7 +227,7 @@ pub(super) fn parts(m: &Msg, running: bool) -> Vec<Part> {
         let file = matches!(canon(&a.name), "Read" | "Edit" | "MultiEdit" | "Write" | "NotebookEdit").then(|| a.path.clone().or_else(|| field(&a.input, &["file_path", "filePath", "path", "notebook_path"]))).flatten();
         let full = matches!(canon(&a.name), "Bash" | "PowerShell").then(|| command_of(&a.input)).flatten().filter(|c| !c.trim().is_empty());
         let args = if file.is_none() && full.is_none() && a.name != "Thinking" { pretty(&a.input) } else { None };
-        let step = Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), args, file, tries: 1 };
+        let step = Step { key: format!("{}:{i}", m.id), live, done, start: a.start, end, error: a.error, detail, cmd: full.as_deref().map(|c| short(c, 56)), shell: full.map(|c| (c.trim().to_string(), a.output.trim_end().to_string())), args, file, tries: 1, sort: sort_of(&a.name), calls: 1 };
         // A call made again right after it failed (the same tool on the same thing, nothing
         // between) is one line that counts its tries, not a line per attempt (Charles, 23 Nov).
         if let Some(Part::Step(p)) = out.last_mut() {
@@ -358,10 +379,10 @@ impl Cauldron {
                     .pl(px(8.))
                     .pr(px(6.))
                     .rounded(px(radius::INSET))
-                    .bg(c(pal.panel))
+                    .bg(super::well_fill(false, pal, 1.0))
                     .border_1()
                     .border_color(c(pal.line_strong))
-                    .shadow(super::lift(super::Lift::Button, pal))
+                    .shadow(super::lift(super::Lift::Well, pal))
                     .text_color(c(pal.fg2))
                     .child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).text_color(fg3).child(clock(now.saturating_sub(s.start))))
                     .child(

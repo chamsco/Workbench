@@ -294,6 +294,7 @@ impl Cauldron {
             return;
         }
         let d2 = dl.clone();
+        backspace_core::crash::note(&format!("update: downloading {}", info.latest));
         let task = cx.background_executor().spawn(async move {
             upd::download_exe(&move |got, total| {
                 d2.got.store(got, Ordering::Relaxed);
@@ -302,6 +303,10 @@ impl Cauldron {
         });
         cx.spawn(async move |this, cx| {
             let res = task.await;
+            match &res {
+                Ok(p) => backspace_core::crash::note(&format!("update: downloaded to {}", p.display())),
+                Err(e) => backspace_core::crash::note(&format!("update: download failed: {e:#}")),
+            }
             let _ = this.update(cx, |this, cx| {
                 this.update = match res {
                     Ok(_) => UpdateState::Staged(info),
@@ -354,9 +359,13 @@ impl Cauldron {
             self.tick_restart(cx);
             return;
         }
+        backspace_core::crash::note("update: swapping the exe");
         let task = cx.background_executor().spawn(async { upd::apply_download() });
         cx.spawn(async move |this, cx| {
             let res = task.await;
+            if let Err(e) = &res {
+                backspace_core::crash::note(&format!("update: swap failed: {e:#}"));
+            }
             match res {
                 Ok(exe) => {
                     let _ = this.update(cx, |this, cx| {
@@ -368,8 +377,12 @@ impl Cauldron {
                     // Let the bar reach the end before the app goes.
                     cx.background_executor().timer(std::time::Duration::from_millis(450)).await;
                     let _ = this.update(cx, |this, cx| match backspace_runner::cmd(&exe).env(backspace_core::instance::RESTART_ENV, "1").spawn() {
-                        Ok(_) => cx.quit(),
+                        Ok(child) => {
+                            backspace_core::crash::note(&format!("update: started the new exe (pid {}), quitting", child.id()));
+                            quit_for_update(cx);
+                        }
                         Err(e) => {
+                            backspace_core::crash::note(&format!("update: the new exe didn't start: {e}"));
                             this.restart = None;
                             this.update = UpdateState::Failed(format!("The update is in place, but it didn't start: {e}. Open Cauldron again."));
                             cx.notify();
@@ -665,4 +678,18 @@ impl Cauldron {
             .child(changes)
             .child(actions)
     }
+}
+
+/// Quits so the updated exe, already started, can take over. The new one waits up to ten seconds
+/// for this one to let go of the single-instance lock and then runs anyway; if quitting stalls
+/// (a runtime waiting on a stuck task, a child that won't stop), two copies would end up running
+/// on the same data. So this one ends itself after five seconds whatever is still going.
+fn quit_for_update(cx: &mut App) {
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        backspace_core::crash::note("update: quit stalled for 5 s; ending the old process");
+        backspace_runner::shutdown_opencode();
+        std::process::exit(0);
+    });
+    cx.quit();
 }

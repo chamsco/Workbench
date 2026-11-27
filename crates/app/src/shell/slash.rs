@@ -152,9 +152,16 @@ impl Cauldron {
                     self.send_error = Some(self.thread.as_ref().and_then(|t| t.goal.clone()).map_or_else(|| "No goal yet: /goal <objective>".into(), |g| format!("Goal: {g}")));
                     None
                 }
-                "pause" | "resume" => {
-                    let _ = chats.set_goal(&id, None, rest == "pause");
+                "pause" => {
+                    let _ = chats.set_goal(&id, None, true);
                     None
+                }
+                // Resuming starts a turn in the user's name. Unpausing alone left a stream that was
+                // paused after GOAL_TURNS (or after a failed turn) to pause again on the next tick,
+                // as nothing had changed: `/goal resume` did nothing.
+                "resume" => {
+                    let _ = chats.set_goal(&id, None, false);
+                    self.thread.as_ref().and_then(|t| t.goal.clone()).map(|g| format!("Carry on toward the goal: {g}"))
                 }
                 "clear" => {
                     let _ = chats.clear_goal(&id);

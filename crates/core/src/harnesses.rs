@@ -268,6 +268,22 @@ impl ModelInfo {
 /// reasoning variants), and the plain listing is the fallback for builds without it. Empty for
 /// CLIs whose list is not machine-readable; their picker offers documented aliases only.
 pub fn list_models(id: &str, bin: &Path, env: &[(String, String)]) -> Vec<ModelInfo> {
+    let v = list_models_now(id, bin, env);
+    if !v.is_empty() {
+        KNOWN.lock().unwrap().insert(id.to_string(), v.clone());
+    }
+    v
+}
+
+/// The models CLI `id` listed the last time this process asked it (`list_models`), without
+/// running it again: for picking a side stream's model while a turn starts.
+pub fn known_models(id: &str) -> Vec<ModelInfo> {
+    KNOWN.lock().unwrap().get(id).cloned().unwrap_or_default()
+}
+
+static KNOWN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Vec<ModelInfo>>>> = std::sync::LazyLock::new(Default::default);
+
+fn list_models_now(id: &str, bin: &Path, env: &[(String, String)]) -> Vec<ModelInfo> {
     match id {
         "opencode" => {
             let ok = |args: &[&str]| run_cli_env(bin, args, env).filter(|o| o.code == 0).map(|o| o.stdout);

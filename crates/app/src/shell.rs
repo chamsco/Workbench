@@ -27,12 +27,15 @@ mod apps;
 mod agentview;
 mod automations;
 mod captain;
+mod crashcard;
 mod slash;
 mod plan;
 mod donecard;
 mod boardview;
 mod canvasmodel;
 mod canvasview;
+mod orbs;
+mod activity;
 mod imageview;
 mod flowview;
 mod chipmenu;
@@ -294,6 +297,8 @@ pub(crate) struct Cauldron {
     sfilter_open: bool,
     /// The restart card while an update is swapped in: when it began, and when the swap finished.
     restart: Option<(std::time::Instant, Option<std::time::Instant>)>,
+    /// A crash from an earlier run, offered as a GitHub issue until reported or dismissed.
+    crash: Option<backspace_core::crash::Report>,
     /// Library: the folders opened to show their streams.
     lib_open: std::collections::HashSet<String>,
     indent: bool,
@@ -362,7 +367,7 @@ pub(crate) struct Cauldron {
     /// What the transcript's last frame measured: stream, width, messages, steps (thread_view).
     transcript_fit: std::cell::RefCell<Option<(String, i32, usize, usize)>>,
     /// The live paragraph's pace: characters shown and when (ms), by message and part.
-    paced: std::cell::RefCell<std::collections::HashMap<String, (f32, u64)>>,
+    paced: std::cell::RefCell<std::collections::HashMap<String, thread::Paced>>,
     /// Last frame left a paced paragraph behind what has arrived: redraw sooner.
     pace_behind: std::cell::Cell<bool>,
     /// Link previews by URL (links.rs): None while one is being fetched.
@@ -774,7 +779,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, spot: None, sfilter: Default::default(), sfilter_open: false, restart: None, lib_open: Default::default(), indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, support_w: 0.0, support_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), unfurls: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_pick: None, map_hover: false, flow_edit: None }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, spot: None, sfilter: Default::default(), sfilter_open: false, restart: None, crash: if cfg!(test) { None } else { backspace_core::crash::pending() }, lib_open: Default::default(), indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, sidebar_drag: None, support_w: 0.0, support_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), unfurls: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_pick: None, map_hover: false, flow_edit: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -1907,10 +1912,12 @@ pub(crate) enum Lift {
     /// top light, so the frame reads as the same raised surface as the buttons and chat boxes
     /// (Charles, 21 Nov 16:52Z).
     Frame,
-    /// Chat boxes.
-    Box,
     /// Buttons.
     Button,
+    /// Direction B (Charles, 27 Nov: "controls out, containers in"): the chat box, stream cards and
+    /// page tiles are set into the card the way the frame is, so only things you press stand up.
+    /// The same edge and top light as a button, with the light under the lower lip instead.
+    Well,
 }
 
 /// The house button's face, from Tuff UI's action button (Charles, 22 Nov): a soft vertical gradient
@@ -1948,14 +1955,22 @@ impl<T: StatefulInteractiveElement + Sized> Pressed for T {}
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let dark = pal.panel.0 < 0x80;
     let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
+    if matches!(l, Lift::Well) {
+        let ink = |a: f32| if dark { hsla(0., 0., 0., a) } else { hsla(222. / 360., 0.35, 0.18, a) };
+        let (a1, a2) = if dark { (0.22, 0.07) } else { (0.17, 0.07) };
+        let inner = |y: f32, blur: f32, spread: f32, a: f32| BoxShadow { color: ink(a), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset: true };
+        let lip = BoxShadow { color: hsla(0., 0., 1., if dark { 0.08 } else { 0.75 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: false };
+        let edge = BoxShadow { color: if dark { hsla(0., 0., 1., 0.05) } else { hsla(0., 0., 0., 0.06) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
+        return vec![inner(6., 14., -8., a1), inner(1., 2., 0., a2), lip, edge];
+    }
     let strong = matches!(l, Lift::Frame);
     let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.08 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.09 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
     let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
     let long = match l {
         Lift::Frame => BoxShadow { color: shade(0.45), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false }, // unused: Frame returns early below
         Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
-        Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
+        Lift::Well => unreachable!("returned above"),
     };
     if strong {
         // The frame is sunk into the window, not stood on it (Charles, 22 Nov): the shadow falls
@@ -1968,6 +1983,16 @@ pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
         return vec![inner(0., 10., 28., -12., top_a), inner(0., 2., 3., 0., top_b), inner(12., 0., 20., -14., left_a), lip, edge];
     }
     vec![long, edge, top]
+}
+
+/// A well's fill: the panel a touch darker, so the inner shadow has something to fall on. Over the
+/// painting it stays glass at the surface's own alpha.
+pub(crate) fn well_fill(painting: bool, pal: &Palette, alpha: f32) -> Hsla {
+    let dark = pal.panel.0 < 0x80;
+    let t = if dark { 0.063 } else { 0.0225 };
+    let m = |v: u8| (f32::from(v) * (1.0 - t)).round() as u8;
+    let tone = Rgb(m(pal.panel.0), m(pal.panel.1), m(pal.panel.2));
+    backdrop::surface(painting, tone, alpha)
 }
 
 fn drop(s: tokens::shadow::Shadow) -> BoxShadow {
@@ -3160,7 +3185,10 @@ impl Render for Cauldron {
             let (ux, uw) = if sp.rect.w < metric::SIDEBAR_MIN_W { (sp.rect.right() + metric::GAP, 300.0) } else { (sp.rect.x + 6.0, (sp.rect.w - 12.0).min(300.0)) };
             root = root.child(div().absolute().left(px(ux)).bottom(px(h - (sp.rect.y + sp.rect.h) + 44.0)).child(self.update_card(pal, uw, cx).test_support()));
         }
-        if let Some(t) = self.inbox_toast(pal, cx) {
+        if let Some(t) = self.crash_card(pal, cx) {
+            // A crash from last time, bottom right, until it is reported or dismissed.
+            root = root.child(div().absolute().right(px(16.)).bottom(px(16.)).child(t.test_support()));
+        } else if let Some(t) = self.inbox_toast(pal, cx) {
             let vp = window.viewport_size();
             root = root.child(abs(Rect::new(f32::from(vp.width) - 280.0 - 16.0, f32::from(vp.height) - 16.0 - 80.0, 280.0, 80.0)).flex().flex_col().justify_end().child(t.test_support()));
         }

@@ -560,7 +560,7 @@ impl Cauldron {
             .test_support();
         let tray_open = self.start.route_menu == Some(super::subs::PickFor::New);
         let stacked = super::subs::tray_stacked();
-        let glass = |d: gpui::Stateful<Div>| d.shadow(super::lift(super::Lift::Box, pal)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL)).child(div().absolute().left_0().top_0().size_full().rounded(px(radius::SHELL)).bg(gpui::black().opacity(0.18)));
+        let glass = |d: gpui::Stateful<Div>| d.shadow(super::lift(super::Lift::Well, pal)).border_1().border_color(if focused { body_line(pal, true) } else if self.plan { c(pal.accent) } else { gpui::transparent_black() }).bg(super::well_fill(self.painting, pal, super::backdrop::GLASS_COMPOSER)).rounded(px(radius::SHELL));
         let nt_stack = div().id("nt-stack").flex().relative().on_hover(cx.listener(|this, h: &bool, _, cx| {
             if this.start.tray_hover != *h {
                 this.start.tray_hover = *h;

@@ -52,5 +52,5 @@ pub(super) fn shell_header(icon: &'static str, title: String, subtitle: String, 
 /// read"). The panel tone with a hairline edge and the buttons' small lift; every block uses this
 /// one face so they look alike.
 pub(super) fn block(pal: &'static Palette) -> Div {
-    div().rounded(px(radius::INSET)).bg(c(pal.panel)).border_1().border_color(c(pal.line_strong)).shadow(super::lift(super::Lift::Button, pal))
+    div().rounded(px(radius::INSET)).bg(super::well_fill(false, pal, 1.0)).border_1().border_color(c(pal.line_strong)).shadow(super::lift(super::Lift::Well, pal))
 }
