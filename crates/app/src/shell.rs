@@ -307,6 +307,7 @@ pub(crate) struct Cauldron {
     sidebar_w: f32,
     /// The floating look (Settings > Appearance > Look): the support area is separate floating cards.
     look_float: bool,
+    look_side: bool,
     sidebar_drag: Option<(f32, f32)>,
     /// The support card's dragged width (prefs `support_w`; 0 is the default) and the drag in progress: where it started, at what width.
     support_w: f32,
@@ -538,7 +539,8 @@ impl Cauldron {
         c.theme_mode = prefs.theme.clone();
         c.sidebar_w = prefs.sidebar_w.map_or(metric::SIDEBAR_W, |w| layout::sidebar_width(w, platform()));
         c.support_w = prefs.support_w.unwrap_or(0.0);
-        c.look_float = prefs.look.as_deref() == Some("floating");
+        c.look_float = matches!(prefs.look.as_deref(), Some("floating" | "floating-side"));
+        c.look_side = prefs.look.as_deref() == Some("floating-side");
         c.done_open = prefs.streams_show_done;
         c.frost = backdrop::FrostLevel::from_pref(&prefs);
         set_notch(prefs.window_style.as_deref() == Some("notch"));
@@ -780,7 +782,7 @@ impl Cauldron {
     }
 
     pub(crate) fn new() -> Self {
-        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, spot: None, sfilter: Default::default(), sfilter_open: false, restart: None, crash: if cfg!(test) { None } else { backspace_core::crash::pending() }, lib_open: Default::default(), indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, look_float: false, sidebar_drag: None, support_w: 0.0, support_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), unfurls: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_pick: None, map_hover: false, flow_edit: None }
+        Cauldron { motion: ShellMotion::default(), section: 0, section_from: 0.0, section_since: None, swap: None, action_since: None, busy_shown: false, open_since: None, bubble_since: None, mine_for: None, mine_n_shown: 0, drawer_last: Some(Panel::Highlights), sidebar_open: true, drawer: None, support_tabs: vec![Panel::Highlights], support_menu: false, support_data: Default::default(), diff_since: None, restore_ask: false, files_open: Default::default(), painting: false, glass: Default::default(), plane: Default::default(), mark_ticker: None, ask_hover: false, ask_open: None, ask_answered: Default::default(), fam_questions: Default::default(), frost: backdrop::FrostLevel::Heavy, stream_bg: None, bg_wipe: None, stream_menu: None, closed_sides: Default::default(), sides_folded: Default::default(), groups_folded: Default::default(), done_open: true, snooze_open: false, done_card: Default::default(), board: Default::default(), archive_open: false, color_target: theme::Target::Sidebar, hex_input: None, theme_mode: String::new(), root_focus: None, plan: false, open_in_menu: false, open_in: thread::OpenIn::Folder, search_open: false, spot: None, sfilter: Default::default(), sfilter_open: false, restart: None, crash: if cfg!(test) { None } else { backspace_core::crash::pending() }, lib_open: Default::default(), indent: false, indent_run: (0.0, None), indent_to: 0.0, sidebar_w: metric::SIDEBAR_W, look_float: false, look_side: false, sidebar_drag: None, support_w: 0.0, support_drag: None, link: None, link_menu: None, link_hover: Default::default(), browser: Default::default(), browser_slot: Default::default(), usage: Default::default(), usage_page: false, section_page: false, pages: Default::default(), usage_hover: false, usage_card_hover: false, settings: None, accounts_file: None, terminal: false, term_blocks: Vec::new(), term_runs: Default::default(), term_cache: Default::default(), act_open: Default::default(), act_tick: None, term_input: None, term_note: None, term_scroll: ScrollHandle::new(), panes: Split::default(), layout_since: None, pane_drag: None, pane_content: [panes::Content::Thread, panes::Content::Empty, panes::Content::Empty], pane_focus: Vec::new(), thread_box: std::cell::Cell::new((0.0, 0.0)), transcript_scroll: ScrollHandle::new(), transcript_seen: Default::default(), transcript_fit: Default::default(), paced: Default::default(), pace_behind: Default::default(), unfurls: Default::default(), coordinator: None, familiar: None, fam_views: Vec::new(), fam_live: Vec::new(), fam_watch: Vec::new(), fam_driving: Default::default(), fam_error: None, fam_composer: None, fam_fixture: false, inbox: Vec::new(), inbox_open: false, update: Default::default(), update_open: false, cli_rows: Vec::new(), inbox_toast: None, fam_from: (0.0, 0.0), fam_to: None, fam_since: None, fam_hl: 0, agents: Vec::new(), idle: Vec::new(), active: 0, reveal: false, tab_window: 0, wheel: 0.0, tab_menu: false, tab_slide: Default::default(), tab_focus: None, tip: None, tip_shown: false, tip_warm_until: None, tip_wait: None, tab_first: 0, threads: Threads::Ready(Vec::new()), selected: None, query: String::new(), search: None, list_focus: None, core: None, watch: None, open: None, thread: None, steps: Default::default(), composer: None, send_error: None, start: Default::default(), err_open: Default::default(), side_root: None, sides: Vec::new(), side_win: false, side_input: None, side_ctx: Default::default(), block_hover: None, bar_hover: false, block_menu: None, sel: None, copied: None, ask: false, reply_files: Vec::new(), slash_sel: 0, slash_closed: false, slash_cmds: Default::default(), plan_open: false, plan_flips: 0, chip_menu: None, plan_hover: None, plan_edit: None, autos: Default::default(), agent_open: None, autos_page: false, session_pick: None, image_view: None, map_pick: None, map_hover: false, flow_edit: None }
     }
 
     /// Opens core off the main thread (the sidebar shows Loading meanwhile), then keeps the thread
@@ -2315,9 +2317,12 @@ impl Render for Cauldron {
 
         // ---- sidebar, flat on the frame (the board's `.sb`): the top row (lights or logo, and the
         // sidebar button, drawn on the window), a line, the apps row, New stream, Search, the list
+        // The floating sidebar is drawn after the stream card, which runs under it.
+        let side_float = self.look_side && s.sidebar.is_some_and(|sp| sp.rect.w >= metric::SIDEBAR_MIN_W);
+        let mut after_main: Vec<AnyElement> = Vec::new();
         if let Some(sp) = s.sidebar.filter(|sp| sp.alpha >= 1.0) {
             // The sidebar's right edge drags its width (Charles, 22 Nov), in the gap before the card.
-            root = root.child(
+            let edge = (
                 div()
                     .id("sidebar-edge")
                     .absolute()
@@ -2334,7 +2339,12 @@ impl Render for Cauldron {
                         cx.notify();
                     }))
                     .test_support(),
-            );
+            ).0;
+            if side_float {
+                after_main.push(edge.into_any_element());
+            } else {
+                root = root.child(edge);
+            }
         }
         // The skinny rail: the sidebar at its narrowest, icons only (rail.rs).
         if let Some(sp) = s.sidebar.filter(|sp| sp.rect.w < metric::SIDEBAR_MIN_W) {
@@ -2394,11 +2404,13 @@ impl Render for Cauldron {
             let new_thread = self.new_button_row(pal, cx);
             let has_new = Self::new_action(self.section).is_some();
             // The top row is 30 high under 8px of padding; the window draws its contents.
-            let card_el = pane("sidebar", sp.rect)
+            let card_r = if side_float { Rect::new(sp.rect.x + 6.0, sp.rect.y + 4.0, sp.rect.w - 6.0, sp.rect.h - 10.0) } else { sp.rect };
+            let card_el = pane("sidebar", card_r)
                 .opacity(sp.alpha)
                 .flex()
                 .flex_col()
-                .pl(px(SIDE_PL))
+                .when_live(side_float, |d| d.rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal)))
+                .pl(px(if side_float { SIDE_PL - 6.0 } else { SIDE_PL }))
                 .pr(px(SIDE_PR))
                 .pt(px(8.))
                 .pb(px(6.))
@@ -2410,7 +2422,11 @@ impl Render for Cauldron {
                 .when_live(self.settings.is_none() && self.section == 0, |d| d.child(familiars).child(self.streams_head(pal, cx)).child(list))
                 .when_live(self.settings.is_none() && self.section != 0, |d| d.child(self.app_list(self.section, pal, cx)))
                 .child(self.sidebar_foot(pal, accent, &user, &initial, cx));
-            root = root.child(card_el.test_support());
+            if side_float {
+                after_main.push(card_el.test_support().into_any_element());
+            } else {
+                root = root.child(card_el.test_support());
+            }
         }
 
         // ---- the stream's tabs, in the stream card's 38px header (the board's `.tab`). Only an open stream
@@ -2775,10 +2791,14 @@ impl Render for Cauldron {
         let inside = if split { self.pane_stage(pal, area, shape, body, window, cx).into_any_element() } else { body };
         // The floating look: the support cards sit on the stream's own card, so it runs under them
         // (Charles, 27 Nov) while its content keeps the width it had beside them.
-        let card_r = match s.support {
-            Some(dp) if self.look_float => Rect::new(s.main.x, s.main.y, (dp.rect.right() - s.main.x).max(s.main.w), s.main.h),
-            _ => s.main,
+        let right = match s.support {
+            Some(dp) if self.look_float => dp.rect.right().max(s.main.right()),
+            _ => s.main.right(),
         };
+        // With the floating sidebar the card also runs under it, from the frame's left edge.
+        let left = if side_float { 4.0_f32.min(s.main.x) } else { s.main.x };
+        let card_r = Rect::new(left, s.main.y, right - left, s.main.h);
+        let card_dx = s.main.x - left;
         let mut card_el = pane("main", card_r)
             // The hover indent sits over this card's left edge: any move over the card itself means
             // the pointer left the band, even in one jump.
@@ -2804,6 +2824,7 @@ impl Render for Cauldron {
                     .relative()
                     .flex()
                     .flex_col()
+                    .pl(px(card_dx))
                     .when_live(!split, |d| d.overflow_hidden())
                     .rounded(px(radius::PANEL))
                     // The tabbed card takes the tab's corners all round (Charles, 21 Nov).
@@ -2827,6 +2848,7 @@ impl Render for Cauldron {
             card_el = card_el.child(self.stage_bar(1.0 + metric::HEAD_H + tools_band + body_h, body_w, fg3));
         }
         root = root.child(card_el.test_support());
+        root = root.children(after_main);
         // The card's tab: the frame comes down right of it (tabshape.rs). Not with a familiar (its
         // own folder tabs) or the notch (it already cuts the card's top-right).
         if let (Some(b), None, None) = (bump, self.familiar, s.notch) {
@@ -3077,7 +3099,9 @@ impl Render for Cauldron {
                 // separate cards on the frame (Highlights) or one card (the other panels).
                 let face = || div().rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal));
                 let below = self.floating_stack(r.w - metric::RAIL_W - metric::GAP, pal, window, cx);
-                pane("support", r).opacity(dp.alpha).flex().flex_col().gap(px(12.)).child(face().child(shead.test_support())).child(below)
+                // No header card: the cards start under the top row, on the stream's own card.
+                let _ = shead;
+                pane("support", r).opacity(dp.alpha).flex().flex_col().pt(px(metric::HEAD_H + 6.)).child(below)
             } else {
                 pane("support", r)
                     .opacity(dp.alpha)
@@ -3123,14 +3147,20 @@ impl Render for Cauldron {
                 // The mark shows the open panel only, not every panel that has a tab (Charles, 20 Nov).
                 let has_tab = if this.look_float { this.drawer.is_some() && this.support_tabs.contains(&p) } else { this.drawer == Some(p) };
                 this.tipped(id, icon_button(id, p.icon(), p.title(), pal, has_tab), p.title(), Side::Left, pal, cx)
-                    .when_live(has_tab, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
+                    .when_live(this.look_float, |d| d.border_1().border_color(if has_tab { c(pal.line_strong) } else { c(pal.line) }).rounded(px(radius::CONTROL)).bg(ca(pal.fg, if has_tab { 0.16 } else { 0.06 })))
+                    .when_live(has_tab && !this.look_float, |d| d.child(div().absolute().left(px(-8.)).top(px(9.)).w(px(3.)).h(px(10.)).rounded(px(2.)).bg(accent)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_panel(p);
                         cx.notify();
                     }))
                     .test_support()
             };
-            let mut rr = pane("rail", s.rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line));
+            // The floating look lifts the rail into a card of its own, so the buttons read against the stream.
+            let mut rr = if self.look_float {
+                div().id("rail-card").flex().flex_col().items_center().gap(px(4.)).py(px(6.)).w(px(metric::RAIL_W - 8.)).rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal))
+            } else {
+                pane("rail", s.rail).flex().flex_col().items_center().gap(px(4.)).pt(px(6.)).pb(px(8.)).border_l_1().border_color(c(pal.line))
+            };
             // The fold toggle sits at the top of the rail, right under the window buttons (Charles,
             // 22 Nov), and takes the accent while the pane is open so it is easy to find.
             let open_now = self.drawer.is_some();
@@ -3160,7 +3190,11 @@ impl Render for Cauldron {
                     }))
                     .test_support(),
             );
-            root = root.child(rr.test_support());
+            if self.look_float {
+                root = root.child(pane("rail", s.rail).flex().flex_col().items_center().pt(px(6.)).child(rr.test_support()).test_support());
+            } else {
+                root = root.child(rr.test_support());
+            }
         }
 
         // ---- Windows: the top strip across the window (Charles, 20 Nov, option B). A drag area,

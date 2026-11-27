@@ -263,8 +263,8 @@ impl Cauldron {
         }
         col = col.child(row(("appearance", 4), "Mode".into(), "Follow the system, or always light or dark.".into(), seg.test_support().into_any_element()));
         let mut look_seg = div().id("set-look").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
-        for (i, name) in ["Classic", "Floating"].into_iter().enumerate() {
-            let on = (i == 1) == self.look_float;
+        for (i, name) in ["Classic", "Floating", "Floating + sidebar"].into_iter().enumerate() {
+            let on = i == if self.look_side { 2 } else if self.look_float { 1 } else { 0 };
             look_seg = look_seg.child(
                 div()
                     .id(("look-opt", i))
@@ -284,15 +284,16 @@ impl Cauldron {
                     .child(name)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let mut p = Prefs::load();
-                        p.look = Some(if i == 1 { "floating" } else { "classic" }.to_string());
+                        p.look = Some(["classic", "floating", "floating-side"][i].to_string());
                         p.save();
-                        this.look_float = i == 1;
+                        this.look_float = i >= 1;
+                        this.look_side = i == 2;
                         cx.notify();
                     }))
                     .test_support(),
             );
         }
-        col = col.child(row(("appearance", 9), "Look".into(), "Classic keeps the right-hand panel as one card. Floating splits it into separate cards: the stream's context, its side streams, and the panel you open.".into(), look_seg.test_support().into_any_element()));
+        col = col.child(row(("appearance", 9), "Look".into(), "Classic keeps the right-hand panel as one card. Floating splits it into separate cards over the stream: its context, its side streams, and each panel you open. Floating + sidebar also lifts the sidebar into a card on the stream.".into(), look_seg.test_support().into_any_element()));
         col
     }
 
