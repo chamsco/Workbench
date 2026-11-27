@@ -1783,6 +1783,57 @@ impl Cauldron {
             self.drawer_last = self.drawer.or(self.support_tabs.first().copied());
         }
     }
+
+    /// The floating look's support column: one card per open panel (Charles, 27 Nov). Kept out of
+    /// `render` so that function's stack frame does not grow.
+    #[inline(never)]
+    fn floating_stack(&self, w: f32, pal: &'static Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let face = || div().rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal));
+        let (fg2, fg3) = (c(pal.fg2), c(pal.fg3));
+        let mut stack = div().relative().w(px(w)).flex_1().min_h_0().flex().flex_col().gap(px(12.));
+        for (i, q) in self.support_tabs.clone().into_iter().enumerate() {
+            if q == Panel::Highlights {
+                if let Some(cards) = self.floating_highlights(pal) {
+                    stack = stack.child(cards);
+                    continue;
+                }
+            }
+            let head = div()
+                .id(("fc-head", i))
+                .h(px(34.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pl(px(12.))
+                .pr(px(6.))
+                .border_b_1()
+                .border_color(c(pal.line))
+                .child(glyph(q.icon(), 13., fg3))
+                .child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(q.title()))
+                .child(
+                    div()
+                        .id(("fc-close", i))
+                        .size(px(22.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(radius::TAG))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(ca(pal.fg, 0.08)))
+                        .aria_label(format!("Close {}", q.title()))
+                        .child(glyph("x", 12., fg3))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_support_tab(q);
+                            cx.notify();
+                        }))
+                        .test_support(),
+                );
+            stack = stack.child(face().flex().flex_col().flex_1().min_h(px(120.)).overflow_hidden().child(head).child(div().relative().flex_1().min_h_0().child(div().absolute().inset_0().child(self.support_body(q, pal, window, cx)))));
+        }
+        stack.into_any_element()
+    }
 }
 
 /// A square icon button, 28px, the wireframe's `.fn`, `.ib` and `.rb`.
@@ -3019,49 +3070,7 @@ impl Render for Cauldron {
                 // The floating look: the header is a card of its own and the body below it is
                 // separate cards on the frame (Highlights) or one card (the other panels).
                 let face = || div().rounded(px(radius::PANEL)).bg(backdrop::card_bg(self.painting, pal)).border_1().border_color(c(pal.line_strong)).shadow(lift(Lift::Frame, pal));
-                let mut stack = div().relative().w(px(r.w - metric::RAIL_W - metric::GAP)).flex_1().min_h_0().flex().flex_col().gap(px(12.));
-                for (i, q) in self.support_tabs.clone().into_iter().enumerate() {
-                    if q == Panel::Highlights {
-                        if let Some(cards) = self.floating_highlights(pal) {
-                            stack = stack.child(cards);
-                            continue;
-                        }
-                    }
-                    let head = div()
-                        .id(("fc-head", i))
-                        .h(px(34.))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .pl(px(12.))
-                        .pr(px(6.))
-                        .border_b_1()
-                        .border_color(c(pal.line))
-                        .child(glyph(q.icon(), 13., fg3))
-                        .child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(fg2).child(q.title()))
-                        .child(
-                            div()
-                                .id(("fc-close", i))
-                                .size(px(22.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(radius::TAG))
-                                .cursor_pointer()
-                                .hover(|d| d.bg(ca(pal.fg, 0.08)))
-                                .aria_label(format!("Close {}", q.title()))
-                                .child(glyph("x", 12., fg3))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.close_support_tab(q);
-                                    cx.notify();
-                                }))
-                                .test_support(),
-                        );
-                    stack = stack.child(face().flex().flex_col().flex_1().min_h(px(120.)).overflow_hidden().child(head).child(div().relative().flex_1().min_h_0().child(body(self, q, 1.0, cx))));
-                }
-                let below = stack.into_any_element();
+                let below = self.floating_stack(r.w - metric::RAIL_W - metric::GAP, pal, window, cx);
                 pane("support", r).opacity(dp.alpha).flex().flex_col().gap(px(12.)).child(face().child(shead.test_support())).child(below)
             } else {
                 pane("support", r)
