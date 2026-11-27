@@ -98,7 +98,10 @@ pub fn claim() -> Option<Instance> {
         // A copy built before the lock existed holds nothing to find, so look for it by its exe.
         // Skipped after a self-update (the old copy is still quitting) and with a custom data
         // folder (a dev run beside the installed app).
-        Ok(Some(_)) if !restarted && std::env::var_os("BACKSPACE_DATA").is_none() && legacy_copy_running() => None,
+        Ok(Some(_)) if !restarted && std::env::var_os("BACKSPACE_DATA").is_none() && legacy_copy_running() => {
+            eprintln!("{} is already running (an older copy that cannot be asked to come forward); quit it and start again.", channel().app_name());
+            None
+        }
         Ok(Some(i)) => {
             #[cfg(windows)]
             let i = Instance { _mutex: mutex, ..i };
@@ -146,49 +149,64 @@ pub fn claim_in(dir: &Path, tries: u32, gap: Duration) -> std::io::Result<Option
     Ok(None)
 }
 
-/// True when another process is running this same executable. Only asked once the lock is ours, so
-/// any such process is a build from before the lock (a newer one would hold it). A replaced exe
-/// (the app dragged over the old one) still counts: Linux marks its path "(deleted)".
+/// True when another process is running this same executable as the app. Only asked once the lock
+/// is ours, so any such process is a build from before the lock (a newer one would hold it). A
+/// replaced exe (the app dragged over the old one) still counts: Linux marks its path "(deleted)".
+/// The same exe also runs as a helper under an agent CLI (`mcp`, `msg`, `tile`), which can outlive
+/// the app after a crash; those are not a second copy and must never block a start.
 pub fn legacy_copy_running() -> bool {
     let Ok(me) = std::env::current_exe() else { return false };
     other_process_runs(&me, &running_exes(), std::process::id())
 }
 
-/// `procs`: (pid, exe path as the OS reports it).
-fn other_process_runs(me: &Path, procs: &[(u32, String)], my_pid: u32) -> bool {
+/// `procs`: (pid, exe path as the OS reports it, first argument if any).
+fn other_process_runs(me: &Path, procs: &[(u32, String, Option<String>)], my_pid: u32) -> bool {
     let me = me.to_string_lossy();
     let me = me.trim_end_matches(" (deleted)");
-    procs.iter().any(|(pid, exe)| *pid != my_pid && exe.trim_end_matches(" (deleted)") == me)
+    procs.iter().any(|(pid, exe, arg)| {
+        *pid != my_pid
+            && exe.trim_end_matches(" (deleted)") == me
+            && !matches!(arg.as_deref(), Some("mcp" | "msg" | "tile"))
+    })
 }
 
 #[cfg(target_os = "linux")]
-fn running_exes() -> Vec<(u32, String)> {
+fn running_exes() -> Vec<(u32, String, Option<String>)> {
     let Ok(rd) = std::fs::read_dir("/proc") else { return Vec::new() };
     rd.flatten()
         .filter_map(|e| {
             let pid: u32 = e.file_name().to_str()?.parse().ok()?;
             let exe = std::fs::read_link(e.path().join("exe")).ok()?;
-            Some((pid, exe.to_string_lossy().into_owned()))
+            let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
+            let arg = cmd.split(|b| *b == 0).nth(1).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned());
+            Some((pid, exe.to_string_lossy().into_owned(), arg))
         })
         .collect()
 }
 
 #[cfg(target_os = "macos")]
-fn running_exes() -> Vec<(u32, String)> {
-    // `comm` is the full path on macOS.
-    let Ok(out) = std::process::Command::new("ps").args(["-axo", "pid=,comm="]).output() else { return Vec::new() };
+fn running_exes() -> Vec<(u32, String, Option<String>)> {
+    // `args` is the full command line, path first; the path may hold spaces, so the caller's own
+    // path is matched as a prefix.
+    let me = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let Ok(out) = std::process::Command::new("ps").args(["-axo", "pid=,args="]).output() else { return Vec::new() };
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|l| {
-            let l = l.trim_start();
-            let (pid, exe) = l.split_once(' ')?;
-            Some((pid.parse().ok()?, exe.trim().to_string()))
+            let (pid, args) = l.trim_start().split_once(' ')?;
+            let args = args.trim();
+            match args.strip_prefix(me.as_str()) {
+                Some(rest) if rest.is_empty() || rest.starts_with(' ') => {
+                    Some((pid.parse().ok()?, me.clone(), rest.split_whitespace().next().map(str::to_string)))
+                }
+                _ => Some((pid.parse().ok()?, args.to_string(), None)),
+            }
         })
         .collect()
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn running_exes() -> Vec<(u32, String)> {
+fn running_exes() -> Vec<(u32, String, Option<String>)> {
     Vec::new() // Windows already sees an old copy through the mutex it always held.
 }
 
@@ -306,11 +324,24 @@ mod tests {
     #[test]
     fn a_pre_lock_copy_is_found_by_its_exe() {
         let me = Path::new("/Applications/Cauldron.app/Contents/MacOS/cauldron");
-        let procs = vec![(10, me.to_string_lossy().into_owned()), (11, "/usr/bin/other".into())];
+        let exe = me.to_string_lossy().into_owned();
+        let procs = vec![(10, exe.clone(), None), (11, "/usr/bin/other".into(), None)];
         assert!(!other_process_runs(me, &procs, 10), "only ourselves");
         assert!(other_process_runs(me, &procs, 99), "an older copy runs");
-        let replaced = vec![(10, format!("{} (deleted)", me.display()))];
+        let replaced = vec![(10, format!("{exe} (deleted)"), None)];
         assert!(other_process_runs(me, &replaced, 99), "replaced on disk, still running");
+    }
+
+    /// An agent CLI's `mcp` helper is this same exe and can outlive the app after a crash. It is not a
+    /// second copy: counting it left the next launch with no window at all.
+    #[test]
+    fn a_leftover_helper_does_not_block_the_next_start() {
+        let me = Path::new("/opt/cauldron/cauldron");
+        let exe = me.to_string_lossy().into_owned();
+        for sub in ["mcp", "msg", "tile"] {
+            let helper = vec![(10, exe.clone(), Some(sub.to_string()))];
+            assert!(!other_process_runs(me, &helper, 99), "{sub} is a helper");
+        }
     }
 
     /// Nightly beside live is allowed, which only holds if the two never share a folder (and so a lock).
