@@ -358,10 +358,10 @@ impl Cauldron {
                     .pl(px(8.))
                     .pr(px(6.))
                     .rounded(px(radius::INSET))
-                    .bg(c(pal.panel))
+                    .bg(super::well_fill(false, pal, 1.0))
                     .border_1()
                     .border_color(c(pal.line_strong))
-                    .shadow(super::lift(super::Lift::Button, pal))
+                    .shadow(super::lift(super::Lift::Well, pal))
                     .text_color(c(pal.fg2))
                     .child(div().ml_auto().flex_none().font_family(MONO).font_features(tnum()).text_size(px(11.5)).text_color(fg3).child(clock(now.saturating_sub(s.start))))
                     .child(

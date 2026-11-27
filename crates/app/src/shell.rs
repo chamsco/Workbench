@@ -1908,10 +1908,12 @@ pub(crate) enum Lift {
     /// top light, so the frame reads as the same raised surface as the buttons and chat boxes
     /// (Charles, 21 Nov 16:52Z).
     Frame,
-    /// Chat boxes.
-    Box,
     /// Buttons.
     Button,
+    /// Direction B (Charles, 27 Nov: "controls out, containers in"): the chat box, stream cards and
+    /// page tiles are set into the card the way the frame is, so only things you press stand up.
+    /// The same edge and top light as a button, with the light under the lower lip instead.
+    Well,
 }
 
 /// The house button's face, from Tuff UI's action button (Charles, 22 Nov): a soft vertical gradient
@@ -1949,14 +1951,22 @@ impl<T: StatefulInteractiveElement + Sized> Pressed for T {}
 pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
     let dark = pal.panel.0 < 0x80;
     let shade = |a: f32| hsla(0., 0., 0., if dark { a } else { a * 0.28 });
+    if matches!(l, Lift::Well) {
+        let ink = |a: f32| if dark { hsla(0., 0., 0., a) } else { hsla(222. / 360., 0.35, 0.18, a) };
+        let (a1, a2) = if dark { (0.22, 0.07) } else { (0.17, 0.07) };
+        let inner = |y: f32, blur: f32, spread: f32, a: f32| BoxShadow { color: ink(a), offset: point(px(0.), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset: true };
+        let lip = BoxShadow { color: hsla(0., 0., 1., if dark { 0.08 } else { 0.75 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: false };
+        let edge = BoxShadow { color: if dark { hsla(0., 0., 1., 0.05) } else { hsla(0., 0., 0., 0.06) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
+        return vec![inner(6., 14., -8., a1), inner(1., 2., 0., a2), lip, edge];
+    }
     let strong = matches!(l, Lift::Frame);
     let edge = BoxShadow { color: if dark { hsla(0., 0., 1., if strong { 0.08 } else { 0.05 }) } else { hsla(0., 0., 0., if strong { 0.09 } else { 0.06 }) }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false };
     let top = BoxShadow { color: hsla(0., 0., 1., if dark { 0.07 } else { 0.8 }), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true };
     let long = match l {
         Lift::Frame => BoxShadow { color: shade(0.45), offset: point(px(0.), px(20.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false }, // unused: Frame returns early below
         Lift::Card => BoxShadow { color: shade(0.55), offset: point(px(0.), px(18.)), blur_radius: px(44.), spread_radius: px(-20.), inset: false },
-        Lift::Box => BoxShadow { color: shade(0.8), offset: point(px(0.), px(24.)), blur_radius: px(48.), spread_radius: px(-18.), inset: false },
         Lift::Button => BoxShadow { color: shade(0.45), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(-2.), inset: false },
+        Lift::Well => unreachable!("returned above"),
     };
     if strong {
         // The frame is sunk into the window, not stood on it (Charles, 22 Nov): the shadow falls
@@ -1969,6 +1979,16 @@ pub(crate) fn lift(l: Lift, pal: &Palette) -> Vec<BoxShadow> {
         return vec![inner(0., 10., 28., -12., top_a), inner(0., 2., 3., 0., top_b), inner(12., 0., 20., -14., left_a), lip, edge];
     }
     vec![long, edge, top]
+}
+
+/// A well's fill: the panel a touch darker, so the inner shadow has something to fall on. Over the
+/// painting it stays glass at the surface's own alpha.
+pub(crate) fn well_fill(painting: bool, pal: &Palette, alpha: f32) -> Hsla {
+    let dark = pal.panel.0 < 0x80;
+    let t = if dark { 0.063 } else { 0.0225 };
+    let m = |v: u8| (f32::from(v) * (1.0 - t)).round() as u8;
+    let tone = Rgb(m(pal.panel.0), m(pal.panel.1), m(pal.panel.2));
+    backdrop::surface(painting, tone, alpha)
 }
 
 fn drop(s: tokens::shadow::Shadow) -> BoxShadow {

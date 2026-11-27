@@ -536,10 +536,10 @@ impl Cauldron {
                 .flex_col()
                 .gap(px(4.))
                 .rounded(px(12.))
-                .bg(c(pal.panel))
+                .bg(super::well_fill(self.painting, pal, 1.0))
                 .border_1()
                 .border_color(c(pal.line))
-                .shadow(super::lift(super::Lift::Card, pal))
+                .shadow(super::lift(super::Lift::Well, pal))
                 .child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(c(pal.fg)).truncate().child(title));
             if !t.reply.is_empty() {
                 card = card.child(div().text_size(px(12.5)).line_height(px(18.)).max_h(px(36.)).overflow_hidden().text_color(c(pal.fg3)).child(t.reply.clone()));
@@ -879,8 +879,8 @@ impl Cauldron {
             .rounded(px(radius::PANEL))
             .border_1()
             .border_color(c(pal.line_strong))
-            .bg(c(pal.panel))
-            .shadow(super::lift(super::Lift::Button, pal))
+            .bg(super::well_fill(false, pal, 1.0))
+            .shadow(super::lift(super::Lift::Well, pal))
             .overflow_hidden()
             .aria_label(e.to_string())
             .child(
@@ -1453,11 +1453,10 @@ impl Cauldron {
             .rounded(px(radius::SHELL))
             .border_1()
             .border_color(c(pal.line))
-            .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            // The buttons' lift (edge, top light, close 2px lip), not Lift::Box: its 24px long shadow
-            // drew a double halo round the box on Windows (Charles, 21 Nov). The transcript fades
-            // out above it ("composer-fade"). Charles, 22 Nov: same effect as buttons.
-            .shadow(super::lift(super::Lift::Button, pal))
+            .bg(super::well_fill(self.painting, pal, super::backdrop::GLASS_COMPOSER))
+            // Set into the card like the frame: controls stand out, containers sit in (Charles,
+            // 27 Nov, board direction B). The transcript fades out above it ("composer-fade").
+            .shadow(super::lift(super::Lift::Well, pal))
             .aria_label("Message the coordinator");
         composer = if tiny {
             // A very short pane: one row, the editor and Send, no chips.
