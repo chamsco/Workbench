@@ -172,11 +172,13 @@ pub struct Sidebar {
     pub push: f32,
     /// A dragged support card width; 0 is the default ([`support_width`]).
     pub support: f32,
+    /// The floating look: the sidebar is a card inset by the frame, not flat on it.
+    pub float: bool,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { w: metric::SIDEBAR_W, push: 0.0, support: 0.0 }
+        Sidebar { w: metric::SIDEBAR_W, push: 0.0, support: 0.0, float: false }
     }
 }
 
@@ -205,7 +207,8 @@ fn layout_at(w: f32, h: f32, state: ShellState, platform: Platform, frame: f32, 
     let (top, bottom, right) = (frame, h - frame, w - frame);
     let full_h = bottom - top;
 
-    let sidebar = state.sidebar_open.then(|| Rect::new(0.0, top, sidebar_width(side.w, platform), full_h));
+    let sb_x = if side.float { frame } else { 0.0 };
+    let sidebar = state.sidebar_open.then(|| Rect::new(sb_x, top, sidebar_width(side.w, platform), full_h));
     let left = sidebar.map_or(frame + side.push, |s| s.right() + GAP);
     let support = state.support_open.then(|| {
         let sw = if side.support > 0.0 { dragged_support_width(w, side.support) } else { support_width(w) };

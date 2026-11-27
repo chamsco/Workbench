@@ -262,6 +262,37 @@ impl Cauldron {
             );
         }
         col = col.child(row(("appearance", 4), "Mode".into(), "Follow the system, or always light or dark.".into(), seg.test_support().into_any_element()));
+        let mut look_seg = div().id("set-look").flex().gap(px(2.)).p(px(2.)).rounded(px(radius::CONTROL)).border_1().border_color(c(pal.line_strong));
+        for (i, name) in ["Classic", "Floating"].into_iter().enumerate() {
+            let on = (i == 1) == self.look_float;
+            look_seg = look_seg.child(
+                div()
+                    .id(("look-opt", i))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(radius::TAG))
+                    .cursor_pointer()
+                    .when_live(on, |d| d.bg(c(pal.selected)))
+                    .when_live(!on, |d| d.hover(|d| d.bg(c(pal.hover))))
+                    .aria_selected(on)
+                    .aria_label(name)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { fg } else { fg2 })
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let mut p = Prefs::load();
+                        p.look = Some(if i == 1 { "floating" } else { "classic" }.to_string());
+                        p.save();
+                        this.look_float = i == 1;
+                        cx.notify();
+                    }))
+                    .test_support(),
+            );
+        }
+        col = col.child(row(("appearance", 9), "Look".into(), "Classic keeps the sidebar flat on the frame and the stream in its card. Floating lifts the sidebar into a card and lets the stream sit on the background.".into(), look_seg.test_support().into_any_element()));
         col
     }
 

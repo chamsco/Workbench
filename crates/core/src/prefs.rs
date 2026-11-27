@@ -109,6 +109,9 @@ pub struct Prefs {
     /// Cauldron: how the New stream box shows its model picker. "stacked" is a card tucked behind
     /// the box that drops out below it; None (or anything else) unfolds the tray under the box.
     pub model_tray: Option<String>,
+    /// Cauldron: the look. "floating" lifts the sidebar into a card of its own and lets the stream
+    /// sit on the background with no card behind it; None (or anything else) is the classic look.
+    pub look: Option<String>,
     /// Cauldron: the sidebar's dragged width in px. None: the default 236.
     pub sidebar_w: Option<f32>,
     /// The support card's dragged width.
@@ -204,6 +207,7 @@ impl Default for Prefs {
             frost: None,
             window_style: None,
             model_tray: None,
+            look: None,
             sidebar_w: None,
             support_w: None,
             streams_show_done: false,
