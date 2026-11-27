@@ -149,8 +149,8 @@ impl Cauldron {
             .border_1()
             .border_color(c(pal.line))
             // Frosted like the box under it, lifted the same way.
-            .bg(super::backdrop::surface(self.painting, pal.raised, super::backdrop::GLASS_COMPOSER))
-            .shadow(super::lift(super::Lift::Button, pal))
+            .bg(super::well_fill(self.painting, pal, super::backdrop::GLASS_COMPOSER))
+            .shadow(super::lift(super::Lift::Well, pal))
             .child(head);
         if !open {
             return Some(panel.test_support().into_any_element());
