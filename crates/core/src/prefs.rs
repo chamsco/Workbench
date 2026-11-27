@@ -663,7 +663,12 @@ impl Prefs {
             return Some(PathBuf::from(p));
         }
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-        Some(PathBuf::from(home).join(".config/backspace/prefs.json"))
+        // Per channel, like the data folder: a nightly saving its prefs must not undo the live app's.
+        let dir = match crate::instance::channel() {
+            crate::instance::Channel::Live => "backspace",
+            crate::instance::Channel::Nightly => "backspace-nightly",
+        };
+        Some(PathBuf::from(home).join(".config").join(dir).join("prefs.json"))
     }
 
     /// The side streams' route picked in Settings, reading the older Claude-only pick too (a
@@ -819,10 +824,12 @@ impl Prefs {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir);
+        // Each channel keeps its own folder, so a nightly can run beside the live app (instance.rs).
+        let ch = crate::instance::channel();
         if cfg!(target_os = "macos") {
-            home.join("Library/Application Support/Backspace")
+            home.join("Library/Application Support").join(ch.data_folder(true))
         } else {
-            home.join(".local/share/backspace")
+            home.join(".local/share").join(ch.data_folder(false))
         }
     }
 }
