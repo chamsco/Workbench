@@ -37,6 +37,24 @@ impl Cauldron {
         canvasmodel::build(t, &sides, chats.is_busy(&t.id), &files)
     }
 
+    /// Whether the canvas shows the lineage of what was made (coding) or the reasoning: the
+    /// stream's choice, else lineage once it has shipped a commit.
+    fn lineage_on(&self) -> bool {
+        self.board.lineage.unwrap_or_else(|| self.board.b.nodes.iter().any(|n| n.via.is_none() && n.refs.iter().any(|r| r.kind == "Commit")))
+    }
+
+    /// What the canvas draws: the reasoning flow, or the lineage with the same pill and tasks.
+    fn canvas_view(&self, t: &Thread) -> Flow {
+        let flow = self.canvas_flow(t);
+        if !self.lineage_on() {
+            return flow;
+        }
+        let mut l = canvasmodel::lineage(&self.board.b);
+        l.pill = flow.pill;
+        l.tasks = flow.tasks;
+        l
+    }
+
     /// Fits the canvas once it has a size, and again when new cards arrive (newest in view).
     #[inline(never)]
     pub(super) fn canvas_prepare(&mut self) {
@@ -49,11 +67,12 @@ impl Cauldron {
         if w < 10. {
             return;
         }
-        let f = self.canvas_flow(&t);
-        if self.board.cfit == Some(f.cards.len()) {
+        let f = self.canvas_view(&t);
+        let key = f.cards.len() * 2 + usize::from(self.lineage_on());
+        if self.board.cfit == Some(key) {
             return;
         }
-        self.board.cfit = Some(f.cards.len());
+        self.board.cfit = Some(key);
         let Some((x0, y0, x1, y1)) = f.extent() else {
             self.board.ccam = (w / 2. - canvasmodel::START_W / 2., h * 0.32, 1.0);
             return;
@@ -110,7 +129,7 @@ impl Cauldron {
     /// and from the Board; both are 1 at rest.
     #[inline(never)]
     pub(super) fn canvas_el(&self, t: &Thread, zoom: f32, alpha: f32, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
-        let f = self.canvas_flow(t);
+        let f = self.canvas_view(t);
         let b = self.board.cbounds.get();
         let (bw, bh) = (f32::from(b.size.width), f32::from(b.size.height));
         // The camera, with the hand-over's zoom about the middle of the view.
@@ -206,6 +225,7 @@ impl Cauldron {
 
         let pill = self.canvas_pill(&f, now, pal, cx);
         let tasks = self.canvas_tasks(&f, pal, cx);
+        let mode = self.canvas_mode(pal, cx);
         let zoom_label = div().id("canvas-zoom").absolute().top(px(14.)).right(px(18.)).text_size(px(12.)).font_features(tnum()).text_color(fg3).child(format!("{}%", (k * 100.).round())).test_support();
 
         // The chat box, floating: a gap under it, rounded, see-through silver.
@@ -237,6 +257,7 @@ impl Cauldron {
             .child(world)
             .child(pill)
             .child(zoom_label)
+            .child(mode)
             .child(tasks)
             .child(float)
             .test_support()
@@ -286,6 +307,52 @@ impl Cauldron {
                         .child(div().text_size(px(13.5 * k)).line_height(px(20. * k)).text_color(if card.answer.is_some() { fg2 } else { fg }).child(card.title.clone()))
                         .when_some(card.answer.clone(), |d, a| d.child(div().flex().child(div().px(px(10. * k)).py(px(5. * k)).rounded(px(8. * k)).bg(c(pal.raised)).border_1().border_color(c(pal.line_strong)).text_size(px(12.5 * k)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(a)))),
                 ),
+            Kind::Version => {
+                let mut parts = card.sub.split('\u{1f}');
+                let (ver, when, commit) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                let mut b = base
+                    .flex()
+                    .flex_col()
+                    .rounded(px(12. * k))
+                    .bg(c(pal.raised))
+                    .border_1()
+                    .border_color(if card.latest { c(pal.accent) } else { c(pal.line_strong) })
+                    .shadow(super::lift(super::Lift::Button, pal))
+                    .overflow_hidden()
+                    .cursor_pointer()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8. * k))
+                            .px(px(12. * k))
+                            .pt(px(10. * k))
+                            .pb(px(2. * k))
+                            .child(div().px(px(6. * k)).rounded(px(5. * k)).bg(if card.latest { c(pal.accent_soft) } else { c(pal.hover) }).text_size(px(11. * k)).font_weight(FontWeight::SEMIBOLD).text_color(if card.latest { c(pal.accent) } else { fg2 }).child(ver.to_string()))
+                            .child(div().flex_1().min_w_0().truncate().text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(card.title.clone()))
+                            .child(div().flex_none().text_size(px(10.5 * k)).text_color(fg3).child(when.to_string())),
+                    );
+                if let Some(p) = &card.image {
+                    b = b.child(div().mx(px(12. * k)).mt(px(8. * k)).h(px(120. * k)).rounded(px(8. * k)).overflow_hidden().border_1().border_color(c(pal.line)).child(img(std::path::PathBuf::from(p)).size_full().object_fit(ObjectFit::Cover)));
+                }
+                let mut ul = div().flex().flex_col().gap(px(3. * k)).px(px(12. * k)).pt(px(8. * k));
+                for l in &card.lines {
+                    ul = ul.child(div().text_size(px(12. * k)).line_height(px(16. * k)).text_color(fg2).truncate().child(l.clone()));
+                }
+                let mut chips = div().flex().flex_wrap().gap(px(5. * k)).px(px(12. * k)).pt(px(8. * k)).pb(px(10. * k));
+                let chip = |t: String, col: Hsla, soft: bool| div().px(px(6. * k)).py(px(1. * k)).rounded(px(5. * k)).border_1().border_color(if soft { col.opacity(0.0) } else { c(pal.line) }).when(soft, |d| d.bg(col.opacity(0.13))).text_size(px(10.5 * k)).text_color(col).child(t);
+                if !commit.is_empty() {
+                    chips = chips.child(chip(commit.to_string(), fg3, false));
+                }
+                if let Some(v) = &card.answer {
+                    chips = chips.child(chip(v.clone(), c(pal.warn), true));
+                }
+                if card.latest {
+                    chips = chips.child(chip("Latest".into(), c(pal.accent), true));
+                }
+                b = b.child(ul).child(chips);
+                b
+            }
             Kind::Helper | Kind::Result | Kind::Plan => {
                 let (label_icon, state_col) = match card.live {
                     Live::Working => ("loader", c(pal.accent)),
@@ -364,6 +431,14 @@ impl Cauldron {
                 b
             }
         };
+        let el = if let Some(nid) = card.node.clone() {
+            el.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_click(cx.listener(move |this, _, _, cx| {
+                this.board.swap = Some((Instant::now(), true));
+                this.board_show_node(&nid, cx);
+            }))
+        } else {
+            el
+        };
         let el = match card.open.clone() {
             Some(sid) => el.cursor_pointer().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_click(cx.listener(move |this, _, _, cx| {
                 this.selected = Some(sid.clone());
@@ -373,6 +448,56 @@ impl Cauldron {
             None => el.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
         };
         el.test_support().into_any_element()
+    }
+
+    /// Reasoning | Lineage, top left: how the canvas reads the stream.
+    fn canvas_mode(&self, pal: &'static Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, fg3) = (c(pal.fg), c(pal.fg3));
+        let on = self.lineage_on();
+        let seg = |id: &'static str, icon: &'static str, label: &'static str, sel: bool| {
+            div()
+                .id(id)
+                .h(px(26.))
+                .px(px(9.))
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .rounded(px(radius::CONTROL))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if sel { fg } else { fg3 })
+                .when(sel, |d| d.button_face(pal).pressed().shadow(super::lift(super::Lift::Button, pal)))
+                .when(!sel, |d| d.hover(|d| d.bg(c(pal.hover)).text_color(fg)))
+                .aria_label(label)
+                .aria_selected(sel)
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(glyph(icon, 12., if sel { c(pal.fg2) } else { fg3 }))
+                .child(label)
+        };
+        div()
+            .id("canvas-mode")
+            .absolute()
+            .top(px(12.))
+            .left(px(16.))
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(radius::CONTROL + 2.))
+            .bg(c(pal.raised))
+            .border_1()
+            .border_color(c(pal.line))
+            .child(seg("canvas-reasoning", "brain", "Reasoning", !on).on_click(cx.listener(|this, _, _, cx| {
+                this.board.lineage = Some(false);
+                cx.notify();
+            })).test_support())
+            .child(seg("canvas-lineage", "git-fork", "Lineage", on).on_click(cx.listener(|this, _, _, cx| {
+                this.board.lineage = Some(true);
+                cx.notify();
+            })).test_support())
+            .test_support()
+            .into_any_element()
     }
 
     /// The status pill at the top centre: an orb, what is going on, Stop while it works and Next

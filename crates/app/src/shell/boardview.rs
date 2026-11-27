@@ -77,6 +77,8 @@ pub(crate) struct BoardState {
     pub cpan: Option<(f32, f32, f32, f32)>,
     /// The Tasks tray is open.
     pub tray: bool,
+    /// Lineage (the coding canvas) or Reasoning; None picks Lineage once the stream has shipped a commit.
+    pub lineage: Option<bool>,
     pub cbounds: Rc<Cell<Bounds<Pixels>>>,
     /// Canvas and Board handing over: when it began, and whether it goes to the Board.
     pub swap: Option<(std::time::Instant, bool)>,
@@ -107,6 +109,7 @@ impl Default for BoardState {
             cfit: None,
             cpan: None,
             tray: false,
+            lineage: None,
             cbounds: Rc::new(Cell::new(Bounds::default())),
             swap: None,
         }

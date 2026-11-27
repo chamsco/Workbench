@@ -698,6 +698,7 @@ impl Cauldron {
             self.board.canvas = canvas;
             self.board.cfit = None;
             self.board.tray = false;
+            self.board.lineage = None;
             self.board.swap = None;
         }
         self.open = Some(id);
